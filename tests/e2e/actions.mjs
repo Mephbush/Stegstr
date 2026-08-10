@@ -15,7 +15,7 @@ export const EMBED_FLOWS = {
 
 export const DETECT_FLOW = [
   "Click Detect image or drag-drop",
-  "Select or drop exchange.png",
+  "Select or drop exchange.jpg",
   "Verify events merged into feed",
 ];
 

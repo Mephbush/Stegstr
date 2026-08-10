@@ -1,7 +1,6 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import * as Nostr from "./nostr-stub";
-import { isWeb, pickImageFile, decodeStegoFile, encodeStegoToBlob, downloadBlob } from "./platform-web";
-import { getDotCapacityForFile } from "./stego-dot-web";
+import { isWeb, pickImageFile, downloadBlob } from "./platform-web";
 import { getTauri } from "./platform-desktop";
 import { connectRelays, publishEvent, DEFAULT_RELAYS, getRelayUrls } from "./relay";
 import { uint8ArrayToBase64 } from "./utils";
@@ -31,7 +30,6 @@ import { ProfileView } from "./ProfileView";
 import { FeedView } from "./FeedView";
 import type { FeedItem } from "./FeedView";
 import { EmbedModal } from "./EmbedModal";
-import type { StegoMethod } from "./EmbedModal";
 import { EditProfileModal } from "./EditProfileModal";
 import { LoginModal } from "./LoginModal";
 import { NewMessageModal } from "./NewMessageModal";
@@ -223,7 +221,6 @@ function App({ profile }: { profile: string | null }) {
   const [dmDecrypted, setDmDecrypted] = useState<Record<string, string>>({});
   const [searchQuery, setSearchQuery] = useState("");
   const [embedModalOpen, setEmbedModalOpen] = useState(false);
-  const [embedMethod, setEmbedMethod] = useState<StegoMethod>("qim");
   const [targetPlatform, setTargetPlatform] = useState<string>("instagram");
   const [embedCoverFile, setEmbedCoverFile] = useState<File | null>(null);
   const [embedRecipientMode, setEmbedRecipientMode] = useState<"open" | "recipients">("open");
@@ -1101,29 +1098,13 @@ function App({ profile }: { profile: string | null }) {
       addStegoLog(`Selected: ${file.name} (${file.size} bytes, type: ${file.type})`);
       logger.logAction("detect_started", "Decoding stego image (browser)", { name: file.name });
       try {
-      // Try QIM first for JPEG files, then fall back to Dot
-      let result: { ok: boolean; payload?: string; error?: string } = { ok: false };
-      const isJpeg = file.type === "image/jpeg" || file.name.toLowerCase().endsWith(".jpg") || file.name.toLowerCase().endsWith(".jpeg");
-      if (isJpeg) {
-        setStegoProgress("Trying QIM decode (robust)...");
-        addStegoLog("Trying QIM steganography decode...");
-        try {
-          result = await decodeQimImageFile(file);
-          if (result.ok) {
-            addStegoLog(`QIM decode OK! Payload: ${result.payload?.length ?? 0} chars`);
-          } else {
-            addStegoLog(`QIM decode failed: ${result.error ?? "unknown"}, falling back to Dot...`);
-          }
-        } catch (qimErr) {
-          addStegoLog(`QIM decode error: ${qimErr instanceof Error ? qimErr.message : String(qimErr)}, falling back to Dot...`);
-        }
-      }
-      if (!result.ok) {
-        setStegoProgress("Extracting hidden data (Dot decode)...");
-        addStegoLog("Running Dot steganography decode...");
-        console.log("[App] Starting decodeStegoFile for:", file.name, "size:", file.size);
-        result = await decodeStegoFile(file);
-        console.log("[App] decodeStegoFile result:", result.ok, "error:", result.error, "payloadLen:", result.payload?.length);
+      setStegoProgress("Extracting hidden data (QIM decode)...");
+      addStegoLog("Running QIM steganography decode...");
+      const result = await decodeQimImageFile(file);
+      if (result.ok) {
+        addStegoLog(`QIM decode OK! Payload: ${result.payload?.length ?? 0} chars`);
+      } else {
+        addStegoLog(`QIM decode failed: ${result.error ?? "unknown error"}`);
       }
       if (!result.ok || !result.payload) {
         const err = result.error || "Decode failed";
@@ -1265,27 +1246,10 @@ function App({ profile }: { profile: string | null }) {
     addStegoLog(`Selected: ${path}`);
     logger.logAction("detect_started", "Decoding stego image", { path });
     try {
-      const isJpeg = /\.jpe?g$/i.test(path);
-      let result: { ok: boolean; payload?: string; error?: string };
-      setStegoProgress("Extracting hidden data (Dot decode)...");
-      addStegoLog("Running Dot steganography decode...");
-      console.log("[Detect] Trying Dot decode first:", path);
-      result = await tauri.invoke<{ ok: boolean; payload?: string; error?: string }>("decode_stego_dot", { path });
-      console.log("[Detect] Dot result: ok=", result.ok, "error=", result.error ?? "(none)");
-      if (!result.ok) {
-        addStegoLog(`Dot decode failed: ${result.error ?? "unknown error"}`);
-        if (isJpeg) {
-          addStegoLog("Falling back to QIM decode (JPEG)...");
-          console.log("[Detect] JPEG: falling back to QIM decode:", path);
-          result = await tauri.invoke<{ ok: boolean; payload?: string; error?: string }>("decode_stego_qim", { path });
-          console.log("[Detect] QIM result: ok=", result.ok, "error=", result.error ?? "(none)", "payloadLen=", result.payload?.length ?? 0);
-        } else {
-          addStegoLog("Falling back to DWT decode (PNG/other)...");
-          console.log("[Detect] PNG/other: falling back to DWT decode:", path);
-          result = await tauri.invoke<{ ok: boolean; payload?: string; error?: string }>("decode_stego_image", { path });
-          console.log("[Detect] DWT result: ok=", result.ok, "error=", result.error ?? "(none)");
-        }
-      }
+      setStegoProgress("Extracting hidden data (QIM decode)...");
+      addStegoLog("Running QIM steganography decode...");
+      const result = await tauri.invoke<{ ok: boolean; payload?: string; error?: string }>("decode_stego_qim", { path });
+      console.log("[Detect] QIM result: ok=", result.ok, "error=", result.error ?? "(none)", "payloadLen=", result.payload?.length ?? 0);
       if (!result.ok || !result.payload) {
         const err = result.error || "Decode failed";
         addStegoLog(`FAIL: ${err}`);
@@ -1293,7 +1257,7 @@ function App({ profile }: { profile: string | null }) {
         logger.logAction("detect_error", err, { path });
         return;
       }
-      addStegoLog(`Dot decode OK! Payload: ${result.payload.length} chars`);
+      addStegoLog(`QIM decode OK! Payload: ${result.payload.length} chars`);
       let jsonString: string;
       const raw = result.payload;
       if (raw.startsWith("base64:")) {
@@ -1422,7 +1386,7 @@ function App({ profile }: { profile: string | null }) {
     if (isWeb()) return;
     try {
       const tauri = await getTauri();
-      const path = await tauri.invoke<string>("get_exchange_path");
+      const path = await tauri.invoke<string>("get_exchange_path_qim");
       handleLoadFromImage(path);
     } catch (e) {
       setDecodeError(e instanceof Error ? e.message : String(e));
@@ -1444,25 +1408,19 @@ function App({ profile }: { profile: string | null }) {
         setDetecting(false);
         return;
       }
-      const outputPath = await tauri.invoke<string>("get_exchange_path");
+      const outputPath = await tauri.invoke<string>("get_exchange_path_qim");
       const bundle: NostrStateBundle = { version: STEGSTR_BUNDLE_VERSION, events };
       const jsonString = JSON.stringify(bundle);
       const encrypted = await stegoCrypto.encryptOpen(jsonString);
       const payloadToEmbed = "base64:" + uint8ArrayToBase64(encrypted);
-      const cmd = "encode_stego_dot";
-      const result = await tauri.invoke<{ ok: boolean; path?: string; error?: string }>(cmd, {
+      const result = await tauri.invoke<{ ok: boolean; path?: string; error?: string }>("encode_stego_qim", {
         coverPath,
         outputPath,
         payload: payloadToEmbed,
+        platform: targetPlatform,
       });
       if (result.ok && result.path) {
-        try {
-          const isPng = await tauri.invoke<boolean>("check_png_signature", { path: result.path });
-          addStegoLog(`PNG signature check: ${isPng ? "OK" : "FAIL"}`);
-        } catch (e) {
-          addStegoLog(`PNG signature check error: ${e instanceof Error ? e.message : String(e)}`);
-        }
-        addStegoLog(`Saved to: ${result.path}`);
+        addStegoLog(`Saved QIM JPEG to: ${result.path}`);
         setStatus(`Saved to exchange. B can click Detect from exchange.`);
         logger.logAction("embed_completed", "Embed to exchange done", { path: result.path, eventCount: events.length });
       } else {
@@ -1474,7 +1432,7 @@ function App({ profile }: { profile: string | null }) {
     } finally {
       setDetecting(false);
     }
-  }, [profile, events, embedMethod]);
+  }, [profile, events, targetPlatform]);
 
   const handleEmbedConfirm = useCallback(async () => {
     if (!embedModalOpen) return;
@@ -1564,7 +1522,7 @@ function App({ profile }: { profile: string | null }) {
           return encrypted;
         };
 
-        if (embedMethod === "qim") {
+        {
           // ===== QIM BRANCH =====
           addStegoLog(`Using QIM method (target platform: ${targetPlatform})`);
 
@@ -1612,10 +1570,9 @@ function App({ profile }: { profile: string | null }) {
           addStegoLog("Running round-trip self-test...");
           const selfTestResult = await qimSelfTest(blob, encrypted);
           if (selfTestResult.ok) {
-            addStegoLog("Self-test PASSED! Payload survives encode/decode round-trip.");
+            addStegoLog("Local self-test passed. Platform delivery still requires field verification.");
           } else {
-            addStegoLog(`Self-test FAILED: ${selfTestResult.error}`);
-            addStegoLog("WARNING: Payload may not survive platform transforms. Consider using Dot method instead.");
+            addStegoLog(`Local self-test failed: ${selfTestResult.error}`);
           }
 
           // Step 6: Download
@@ -1632,33 +1589,6 @@ function App({ profile }: { profile: string | null }) {
           logger.logAction("embed_completed", "QIM embed saved (browser download)", { eventCount: events.length, platform: targetPlatform });
           return;
         }
-
-        // ===== DOT BRANCH (legacy) =====
-        const maxPayloadBytes = await getDotCapacityForFile(embedCoverFile);
-        addStegoLog(`Dot capacity: ${maxPayloadBytes} bytes`);
-        const encrypted = await encryptAndFit(maxPayloadBytes);
-        if (!encrypted) {
-          setDecodeError("Image too small for stego payload");
-          setEmbedding(false);
-          return;
-        }
-        const payloadToEmbed = "base64:" + uint8ArrayToBase64(encrypted);
-        setStegoProgress("Embedding data into image (Dot encode)...");
-        addStegoLog("Running Dot steganography encode...");
-        const blob = await encodeStegoToBlob(embedCoverFile, payloadToEmbed);
-        addStegoLog(`Dot encode complete! Output: ${blob.size} bytes PNG`);
-        const name = embedCoverFile.name.replace(/\.[^.]+$/, "") || "image";
-        setStegoProgress("Downloading embedded image...");
-        addStegoLog(`Triggering download: ${name}-stegstr.png`);
-        downloadBlob(blob, `${name}-stegstr.png`);
-        addStegoLog("SUCCESS - Download started!");
-        setEmbedModalOpen(false);
-        setEmbedCoverFile(null);
-        setEmbedding(false);
-        setStegoProgress("");
-        setStatus("Image downloaded. Save it from your Downloads folder.");
-        logger.logAction("embed_completed", "Dot embed saved (browser download)", { eventCount: events.length });
-        return;
       }
       const tauri = await getTauri();
       const coverPath = await tauri.openDialog({
@@ -1670,27 +1600,27 @@ function App({ profile }: { profile: string | null }) {
         return;
       }
       const coverName = coverPath.replace(/^.*[/\\]/, "").replace(/\.[^.]+$/, "") || "image";
-      const ext = "png";
+      const ext = "jpg";
       let defaultPath = `${coverName}.${ext}`;
       try {
         const desktop = await tauri.invoke<string>("get_desktop_path");
         if (desktop) defaultPath = `${desktop}/${coverName}.${ext}`;
       } catch (_) {}
       const outputPath = await tauri.saveDialog({
-        filters: [{ name: "PNG", extensions: [ext] }],
+        filters: [{ name: "JPEG", extensions: [ext] }],
         defaultPath,
       });
       if (!outputPath) {
         setEmbedModalOpen(false);
         return;
       }
-      const finalOutputPath = outputPath.endsWith(`.${ext}`) ? outputPath : outputPath + `.${ext}`;
+      const finalOutputPath = outputPath.replace(/\.[^.]+$/, "") + `.${ext}`;
       let maxPayloadBytes = 0;
       try {
-        maxPayloadBytes = await tauri.invoke<number>("get_dot_capacity", { path: coverPath });
-        addStegoLog(`Dot capacity: ${maxPayloadBytes} bytes`);
+        maxPayloadBytes = await tauri.invoke<number>("get_qim_capacity", { path: coverPath, platform: targetPlatform });
+        addStegoLog(`QIM capacity: ${maxPayloadBytes} bytes (${targetPlatform})`);
       } catch (e) {
-        addStegoLog(`Dot capacity check failed: ${e instanceof Error ? e.message : String(e)}`);
+        addStegoLog(`QIM capacity check failed: ${e instanceof Error ? e.message : String(e)}`);
       }
       const buildBundle = async (eventList: NostrEvent[]) => {
         const pubkeysInEmbed = new Set(
@@ -1721,7 +1651,16 @@ function App({ profile }: { profile: string | null }) {
       while (true) {
         const bundle = await buildBundle(trimmedEvents);
         jsonString = JSON.stringify(bundle);
-        const encrypted = await stegoCrypto.encryptOpen(jsonString);
+        const encrypted = embedRecipientMode === "recipients" && embedRecipients.length > 0 && effectivePrivKey
+          ? await stegoCrypto.encryptForRecipients(
+              jsonString,
+              effectivePrivKey,
+              Array.from(new Set([
+                Nostr.getPublicKey(Nostr.hexToBytes(effectivePrivKey)),
+                ...embedRecipients,
+              ])),
+            )
+          : await stegoCrypto.encryptOpen(jsonString);
         if (!maxPayloadBytes || encrypted.length <= maxPayloadBytes) {
           payloadBytes = encrypted;
           break;
@@ -1737,22 +1676,16 @@ function App({ profile }: { profile: string | null }) {
         addStegoLog(`Trimmed events: kept ${trimmedEvents.length}/${events.length} to fit capacity`);
       }
       const payloadToEmbed = "base64:" + uint8ArrayToBase64(payloadBytes);
-      setStegoProgress("Embedding with Dot (offset, robust)...");
-      const cmd = "encode_stego_dot";
-      const result = await tauri.invoke<{ ok: boolean; path?: string; error?: string }>(cmd, {
+      setStegoProgress("Embedding with QIM (JPEG, robust)...");
+      const result = await tauri.invoke<{ ok: boolean; path?: string; error?: string }>("encode_stego_qim", {
         coverPath,
         outputPath: finalOutputPath,
         payload: payloadToEmbed,
+        platform: targetPlatform,
       });
       setEmbedModalOpen(false);
       if (result.ok && result.path) {
-        try {
-          const isPng = await tauri.invoke<boolean>("check_png_signature", { path: result.path });
-          addStegoLog(`PNG signature check: ${isPng ? "OK" : "FAIL"}`);
-        } catch (e) {
-          addStegoLog(`PNG signature check error: ${e instanceof Error ? e.message : String(e)}`);
-        }
-        addStegoLog(`Saved to: ${result.path}`);
+        addStegoLog(`Saved QIM JPEG to: ${result.path}`);
         setStatus(`Saved to ${result.path}. Finder opened.`);
         logger.logAction("embed_completed", "Embed saved successfully", { path: result.path, eventCount: events.length });
         try {
@@ -1773,7 +1706,7 @@ function App({ profile }: { profile: string | null }) {
       setEmbedding(false);
       setStegoProgress("");
     }
-  }, [embedModalOpen, embedCoverFile, events, profiles, identities, addStegoLog, embedRecipientMode, embedRecipients, effectivePrivKey, embedMethod, targetPlatform]);
+  }, [embedModalOpen, embedCoverFile, events, profiles, identities, addStegoLog, embedRecipientMode, embedRecipients, effectivePrivKey, targetPlatform]);
 
   const resolvePubkeyFromInput = useCallback((input: string): string | null => {
     const s = input.trim().replace(/\s/g, "");
@@ -2689,8 +2622,6 @@ function App({ profile }: { profile: string | null }) {
           recipients={embedRecipients}
           onRecipientsChange={setEmbedRecipients}
           profiles={profiles}
-          stegoMethod={embedMethod}
-          onStegoMethodChange={setEmbedMethod}
           targetPlatform={targetPlatform}
           onTargetPlatformChange={setTargetPlatform}
         />

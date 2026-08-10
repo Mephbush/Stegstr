@@ -46,8 +46,8 @@ const QIM_ERASURE_MARGIN = QIM_DELTA / 6.0;
 export const PLATFORM_WIDTHS: Record<string, number> = {
   instagram: 1080,
   facebook: 2048,
-  twitter: 1600,
-  whatsapp_standard: 1600,
+  twitter: 600,
+  whatsapp_standard: 800,
   whatsapp_hd: 4096,
   telegram_photo: 1920,
   imessage: 1280,

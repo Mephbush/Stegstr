@@ -220,11 +220,9 @@ describe("PLATFORM_WIDTHS", () => {
     expect(PLATFORM_WIDTHS).toHaveProperty("none");
   });
 
-  it("instagram is smallest at 1080", () => {
-    const widths = Object.entries(PLATFORM_WIDTHS)
-      .filter(([k]) => k !== "none")
-      .map(([, v]) => v);
-    expect(Math.min(...widths)).toBe(1080);
+  it("uses conservative widths for the harshest modeled channels", () => {
+    expect(PLATFORM_WIDTHS.whatsapp_standard).toBe(800);
+    expect(PLATFORM_WIDTHS.twitter).toBe(600);
     expect(PLATFORM_WIDTHS.instagram).toBe(1080);
   });
 

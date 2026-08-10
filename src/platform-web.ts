@@ -2,7 +2,7 @@
  * Browser-only platform: file picker, stego in JS, download. No Tauri, no network for stego.
  */
 
-import { decodeDotImageFile, encodeDotImageFile } from "./stego-dot-web";
+import { decodeQimImageFile, encodeQimImageFile } from "./stego-qim";
 
 export function isWeb(): boolean {
   return typeof window !== "undefined" && !(window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
@@ -37,7 +37,7 @@ export function pickImageFile(): Promise<File | null> {
 export async function decodeStegoFile(file: File): Promise<{ ok: boolean; payload?: string; error?: string }> {
   try {
     console.log("[platform-web] decodeStegoFile: starting for", file.name, "size:", file.size, "type:", file.type);
-    const result = await decodeDotImageFile(file);
+    const result = await decodeQimImageFile(file);
     console.log("[platform-web] decodeStegoFile: result ok=", result.ok, "payloadLen=", result.payload?.length, "error=", result.error);
     return result;
   } catch (e) {
@@ -59,7 +59,7 @@ function payloadStringToBytes(payload: string): Uint8Array {
   return new TextEncoder().encode(payload);
 }
 
-/** Encode image with payload; returns PNG blob. */
+/** Encode image with payload; returns a JPEG blob suitable for recompression. */
 export async function encodeStegoToBlob(coverFile: File, payload: string): Promise<Blob> {
   try {
     const payloadBytes = payloadStringToBytes(payload);
@@ -67,7 +67,7 @@ export async function encodeStegoToBlob(coverFile: File, payload: string): Promi
     console.log("[platform-web] encodeStegoToBlob: payload string len:", payload.length, "bytes len:", payloadBytes.length);
     console.log("[platform-web] encodeStegoToBlob: first 16 bytes:", Array.from(payloadBytes.slice(0, 16)));
     console.log("[platform-web] encodeStegoToBlob: first 8 as string:", String.fromCharCode(...payloadBytes.slice(0, 8)));
-    const blob = await encodeDotImageFile(coverFile, payloadBytes);
+    const blob = await encodeQimImageFile(coverFile, payloadBytes);
     console.log("[platform-web] encodeStegoToBlob: success, blob size=", blob.size);
     return blob;
   } catch (e) {
@@ -83,7 +83,7 @@ export function downloadBlob(blob: Blob, filename: string): void {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = filename || "stegstr-embed.png";
+    a.download = filename || "stegstr-embed.jpg";
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

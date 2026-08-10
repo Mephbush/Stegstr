@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Run permutation matrix validation (no WebDriver).
- * Validates that the permutation and action matrices are defined.
+ * Validates the QIM JPEG exchange contract and the permutation/action matrices.
  * For full E2E, use semi-manual flow: npm run launch:both
  * Logs all results to tests/e2e/test-run.log for cross-platform reference.
  */

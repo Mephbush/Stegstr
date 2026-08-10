@@ -11,7 +11,7 @@ export function ensureExchangeDir() {
   return EXCHANGE_DIR;
 }
 
-export function exchangeImagePath(name = "exchange.png") {
+export function exchangeImagePath(name = "exchange.jpg") {
   ensureExchangeDir();
   return path.join(EXCHANGE_DIR, name);
 }

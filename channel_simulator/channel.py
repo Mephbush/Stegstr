@@ -3,7 +3,7 @@ Channel simulator: replicates social-platform image processing (resize, JPEG re-
 strip metadata, sRGB) so steganography can be tested in an enclosed loop without
 posting to WhatsApp/Instagram/Facebook/Twitter.
 
-Profiles: whatsapp, instagram, facebook, twitter.
+Profiles: whatsapp, whatsapp_standard, whatsapp_hd, instagram, facebook, twitter, telegram_photo, imessage.
 """
 
 from __future__ import annotations
@@ -15,7 +15,16 @@ from typing import Literal
 
 from PIL import Image, ImageOps
 
-ProfileName = Literal["whatsapp", "instagram", "facebook", "twitter"]
+ProfileName = Literal[
+    "whatsapp",
+    "whatsapp_standard",
+    "whatsapp_hd",
+    "instagram",
+    "facebook",
+    "twitter",
+    "telegram_photo",
+    "imessage",
+]
 
 
 @dataclass
@@ -30,9 +39,13 @@ class ChannelProfile:
 
 PROFILES: dict[ProfileName, ChannelProfile] = {
     "whatsapp": ChannelProfile(max_width=800, jpeg_quality=65),
+    "whatsapp_standard": ChannelProfile(max_width=800, jpeg_quality=65),
+    "whatsapp_hd": ChannelProfile(max_width=4096, jpeg_quality=65),
     "instagram": ChannelProfile(max_width=1080, jpeg_quality=82),
     "facebook": ChannelProfile(max_width=2048, jpeg_quality=77),
     "twitter": ChannelProfile(max_width=600, jpeg_quality=82),
+    "telegram_photo": ChannelProfile(max_width=1920, jpeg_quality=80),
+    "imessage": ChannelProfile(max_width=1280, jpeg_quality=80),
 }
 
 

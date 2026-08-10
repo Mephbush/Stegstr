@@ -226,7 +226,7 @@ fn qim_cli_path() -> std::path::PathBuf {
 }
 
 #[tauri::command]
-fn encode_stego_qim(cover_path: String, output_path: String, payload: String) -> Result<StegoEncodeResult, String> {
+fn encode_stego_qim(cover_path: String, output_path: String, payload: String, platform: Option<String>) -> Result<StegoEncodeResult, String> {
     let cover = normalize_path(&cover_path);
     let output = normalize_path(&output_path);
     let qim_cli = qim_cli_path();
@@ -245,13 +245,17 @@ fn encode_stego_qim(cover_path: String, output_path: String, payload: String) ->
     } else {
         base64::engine::general_purpose::STANDARD.encode(payload.as_bytes())
     };
-    let output_buf = std::process::Command::new("python3")
+    let mut command = std::process::Command::new("python3");
+    command
         .arg(&qim_cli)
         .arg("encode")
         .arg(cover)
         .arg(output)
-        .arg(&payload_b64)
-        .output()
+        .arg(&payload_b64);
+    if let Some(platform) = platform.filter(|value| !value.is_empty()) {
+        command.arg(platform);
+    }
+    let output_buf = command.output()
         .map_err(|e| format!("QIM encode failed: {}", e))?;
     if !output_buf.status.success() {
         let err = String::from_utf8_lossy(&output_buf.stderr);
@@ -266,6 +270,28 @@ fn encode_stego_qim(cover_path: String, output_path: String, payload: String) ->
         path: Some(output.to_string()),
         error: None,
     })
+}
+
+#[tauri::command]
+fn get_qim_capacity(path: String, platform: Option<String>) -> Result<usize, String> {
+    let p = normalize_path(&path);
+    let qim_cli = qim_cli_path();
+    if !qim_cli.exists() {
+        return Err(format!("QIM script not found at {}", qim_cli.display()));
+    }
+    let mut command = std::process::Command::new("python3");
+    command.arg(&qim_cli).arg("capacity").arg(p);
+    if let Some(platform) = platform.filter(|value| !value.is_empty()) {
+        command.arg(platform);
+    }
+    let output = command.output().map_err(|e| format!("QIM capacity failed: {}", e))?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .parse::<usize>()
+        .map_err(|e| format!("Invalid QIM capacity: {}", e))
 }
 
 #[tauri::command]
@@ -371,6 +397,7 @@ pub fn run() {
             check_png_signature,
             decode_stego_qim,
             encode_stego_qim,
+            get_qim_capacity,
             get_desktop_path,
             get_test_profile,
             get_exchange_path,

@@ -111,6 +111,19 @@ def test_channel_simulator_standalone():
         assert img.size[0] <= profile.max_width
 
 
+def test_all_modeled_profiles_are_available():
+    expected = {
+        "whatsapp_standard",
+        "whatsapp_hd",
+        "instagram",
+        "facebook",
+        "twitter",
+        "telegram_photo",
+        "imessage",
+    }
+    assert expected.issubset(PROFILES)
+
+
 def test_channel_simulator_output_path():
     """Simulate with output_path writes file and returns same bytes."""
     cover = make_cover_image()
@@ -208,6 +221,34 @@ def test_dct_roundtrip_no_channel(cover_path: Path, test_payload: bytes):
     stego = encode_dct(cover_jpg, test_payload)
     dec = decode_dct(stego)
     assert dec == test_payload, f"roundtrip failed: {dec!r} != {test_payload!r}"
+
+
+def test_qim_survives_modeled_channels(cover_path: Path, test_payload: bytes):
+    """QIM must be measured end-to-end against every modeled channel profile."""
+    try:
+        from dct_variants import decode_dct_qim, encode_dct_qim
+    except ImportError:
+        pytest.skip("QIM dependencies not installed")
+    results = []
+    profiles = [
+        "whatsapp_standard",
+        "whatsapp_hd",
+        "instagram",
+        "facebook",
+        "twitter",
+        "telegram_photo",
+        "imessage",
+    ]
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        for profile_name in profiles:
+            stego_path = tmp_path / f"stego_{profile_name}.jpg"
+            after_path = tmp_path / f"after_{profile_name}.jpg"
+            stego_path.write_bytes(encode_dct_qim(cover_path, test_payload, platform=profile_name))
+            after_bytes = simulate(stego_path, profile_name, output_path=after_path)
+            decoded = decode_dct_qim(after_bytes)
+            results.append((profile_name, decoded == test_payload))
+    assert all(ok for _, ok in results), f"QIM channel matrix failed: {results}"
 
 
 def test_dct_survives_some_channels(cover_path: Path, test_payload: bytes):

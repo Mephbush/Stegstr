@@ -58,6 +58,7 @@ QIM_PLATFORM_WIDTHS = {
     "whatsapp_hd": 4096,
     "telegram_photo": 1920,
     "imessage": 1280,
+    "none": 0,
 }
 QIM_DEFAULT_WIDTH = 1080  # Universal default when platform unknown
 
