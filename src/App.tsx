@@ -634,11 +634,12 @@ function App({ profile }: { profile: string | null }) {
     .sort((a, b) => b.sortAt - a.sortAt);
 
   const publishViaRelay = useCallback((ev: NostrEvent) => {
-    if (relayRef.current) {
-      relayRef.current.publish(ev);
-    } else {
-      publishEvent(ev, relayUrls);
-    }
+    const delivery = relayRef.current
+      ? relayRef.current.publish(ev)
+      : publishEvent(ev, relayUrls);
+    void delivery.then((accepted) => {
+      if (!accepted) setStatus("Relay did not acknowledge this event; it will retry while Network is on.");
+    });
   }, [relayUrls]);
 
   useEffect(() => {
@@ -656,7 +657,7 @@ function App({ profile }: { profile: string | null }) {
       authors,
       (ev) => {
         try {
-          if (typeof ev.id !== "string" || typeof ev.pubkey !== "string") return;
+          if (!Nostr.verifyEvent(ev)) return;
           const safe: NostrEvent = {
             id: ev.id,
             pubkey: ev.pubkey,
@@ -1178,7 +1179,11 @@ function App({ profile }: { profile: string | null }) {
           setDecodeError("Invalid payload");
           return;
         }
-        const normalized = bundle.events.map((e) => ({
+        const validEvents = bundle.events.filter((event) => Nostr.verifyEvent(event));
+        if (validEvents.length !== bundle.events.length) {
+          addStegoLog(`Rejected ${bundle.events.length - validEvents.length} invalid event(s) from image`);
+        }
+        const normalized = validEvents.map((e) => ({
           ...e,
           kind: typeof e.kind === "number" ? e.kind : parseInt(String(e.kind), 10) || 1,
           created_at: typeof e.created_at === "number" ? e.created_at : Math.floor(Date.now() / 1000),
@@ -1304,7 +1309,11 @@ function App({ profile }: { profile: string | null }) {
         logger.logAction("detect_error", "Invalid payload (events not array)", { path });
         return;
       }
-      const normalized = bundle.events.map((e) => ({
+      const validEvents = bundle.events.filter((event) => Nostr.verifyEvent(event));
+      if (validEvents.length !== bundle.events.length) {
+        addStegoLog(`Rejected ${bundle.events.length - validEvents.length} invalid event(s) from image`);
+      }
+      const normalized = validEvents.map((e) => ({
         ...e,
         kind: typeof e.kind === "number" ? e.kind : parseInt(String(e.kind), 10) || 1,
         created_at: typeof e.created_at === "number" ? e.created_at : Math.floor(Date.now() / 1000),
