@@ -37,11 +37,12 @@ def main() -> int:
             print(f"Cover not found: {cover_path}", file=sys.stderr)
             return 1
         try:
-            from dct_variants import AC_INDICES, QIM_DEFAULT_WIDTH, QIM_PLATFORM_WIDTHS, QIM_REPEAT, QIM_RS_NSYM
+            from dct_variants import AC_INDICES, QIM_DEFAULT_WIDTH, QIM_PLATFORM_WIDTHS, QIM_REPEAT, QIM_RS_NSYM, _crop_qim_platform
             from PIL import Image
             platform = sys.argv[3] if len(sys.argv) == 4 else ""
             max_width = QIM_PLATFORM_WIDTHS.get(platform, QIM_DEFAULT_WIDTH)
             with Image.open(cover_path) as image:
+                image = _crop_qim_platform(image.convert("RGB"), platform)
                 width, height = image.size
             if max_width > 0 and width > max_width:
                 height = max(1, round(height * max_width / width))

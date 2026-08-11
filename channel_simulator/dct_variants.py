@@ -53,14 +53,34 @@ QIM_ERASURE_MARGIN = QIM_DELTA / 6.0  # Mark low-confidence bytes as erasures
 QIM_PLATFORM_WIDTHS = {
     "instagram": 1080,
     "facebook": 2048,
-    "twitter": 1600,
-    "whatsapp_standard": 1600,
+    "twitter": 600,
+    "whatsapp_standard": 800,
     "whatsapp_hd": 4096,
     "telegram_photo": 1920,
     "imessage": 1280,
     "none": 0,
 }
+QIM_PLATFORM_ASPECT_RANGES = {
+    "instagram": (4 / 5, 1.91),
+}
 QIM_DEFAULT_WIDTH = 1080  # Universal default when platform unknown
+
+
+def _crop_qim_platform(img, platform: str):
+    aspect_range = QIM_PLATFORM_ASPECT_RANGES.get(platform)
+    if not aspect_range:
+        return img
+    minimum, maximum = aspect_range
+    aspect = img.width / img.height
+    if aspect < minimum:
+        crop_height = max(1, round(img.width / minimum))
+        top = max(0, (img.height - crop_height) // 2)
+        return img.crop((0, top, img.width, top + crop_height))
+    if aspect > maximum:
+        crop_width = max(1, round(img.height * maximum))
+        left = max(0, (img.width - crop_width) // 2)
+        return img.crop((left, 0, left + crop_width, img.height))
+    return img
 
 
 def _coeff_stream_tcm(Y: np.ndarray) -> list[tuple[int, int, int]]:
@@ -282,6 +302,7 @@ def encode_dct_qim(cover_path: str | Path, payload: bytes, quality: int = 0, pla
     tmp = None
     if cover_path.suffix.lower() in (".png", ".gif", ".bmp", ".jpg", ".jpeg"):
         img = Image.open(cover_path).convert("RGB")
+        img = _crop_qim_platform(img, platform)
         if max_width > 0 and img.width > max_width:
             ratio = max_width / img.width
             new_h = max(1, round(img.height * ratio))

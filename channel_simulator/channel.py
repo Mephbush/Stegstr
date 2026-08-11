@@ -1,9 +1,9 @@
 """
 Channel simulator: replicates social-platform image processing (resize, JPEG re-encode,
 strip metadata, sRGB) so steganography can be tested in an enclosed loop without
-posting to WhatsApp/Instagram/Facebook/Twitter.
+posting to WhatsApp/Instagram/Facebook/Twitter/Telegram.
 
-Profiles: whatsapp, whatsapp_standard, whatsapp_hd, instagram, facebook, twitter, telegram_photo, imessage.
+Profiles: whatsapp_standard, whatsapp_hd, instagram, facebook, twitter, telegram_photo, imessage.
 """
 
 from __future__ import annotations
@@ -16,7 +16,6 @@ from typing import Literal
 from PIL import Image, ImageOps
 
 ProfileName = Literal[
-    "whatsapp",
     "whatsapp_standard",
     "whatsapp_hd",
     "instagram",
@@ -35,13 +34,14 @@ class ChannelProfile:
     jpeg_quality: int
     subsampling: int = 2  # 4:2:0 = 2 in Pillow
     resize_method: str = "LANCZOS"  # LANCZOS, BICUBIC, BILINEAR
+    aspect_min: float | None = None
+    aspect_max: float | None = None
 
 
 PROFILES: dict[ProfileName, ChannelProfile] = {
-    "whatsapp": ChannelProfile(max_width=800, jpeg_quality=65),
     "whatsapp_standard": ChannelProfile(max_width=800, jpeg_quality=65),
     "whatsapp_hd": ChannelProfile(max_width=4096, jpeg_quality=65),
-    "instagram": ChannelProfile(max_width=1080, jpeg_quality=82),
+    "instagram": ChannelProfile(max_width=1080, jpeg_quality=82, aspect_min=4 / 5, aspect_max=1.91),
     "facebook": ChannelProfile(max_width=2048, jpeg_quality=77),
     "twitter": ChannelProfile(max_width=600, jpeg_quality=82),
     "telegram_photo": ChannelProfile(max_width=1920, jpeg_quality=80),
@@ -71,7 +71,7 @@ def simulate(
 
     Args:
         input_path: Path to input image (PNG or JPEG).
-        profile_name: One of "whatsapp", "instagram", "facebook", "twitter".
+        profile_name: One of the keys in PROFILES.
         output_path: If set, write JPEG here and also return bytes. If None, only return bytes.
 
     Returns:
@@ -102,10 +102,22 @@ def simulate(
         else:
             img = img.convert("RGB")
 
-    # 3. Resize to profile max dimension
+    # 3. Apply platform aspect-ratio crop before resize
+    if profile.aspect_min is not None and profile.aspect_max is not None:
+        aspect = img.width / img.height
+        if aspect < profile.aspect_min:
+            crop_height = max(1, round(img.width / profile.aspect_min))
+            top = max(0, (img.height - crop_height) // 2)
+            img = img.crop((0, top, img.width, top + crop_height))
+        elif aspect > profile.aspect_max:
+            crop_width = max(1, round(img.height * profile.aspect_max))
+            left = max(0, (img.width - crop_width) // 2)
+            img = img.crop((left, 0, left + crop_width, img.height))
+
+    # 4. Resize to profile max dimension
     img = _resize_to_max_dim(img, profile.max_width, profile.resize_method)
 
-    # 4. Encode as JPEG: quality, 4:2:0 subsampling
+    # 5. Encode as JPEG: quality, 4:2:0 subsampling
     buf = io.BytesIO()
     img.save(
         buf,

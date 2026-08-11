@@ -1540,7 +1540,7 @@ function App({ profile }: { profile: string | null }) {
           const platformWidth = PLATFORM_WIDTHS[targetPlatform] ?? PLATFORM_WIDTHS[DEFAULT_PLATFORM];
           let resizedCover: File;
           try {
-            resizedCover = await resizeCoverForPlatform(embedCoverFile, platformWidth);
+            resizedCover = await resizeCoverForPlatform(embedCoverFile, platformWidth, targetPlatform);
             addStegoLog(`Resized cover: ${resizedCover.name} (${resizedCover.size} bytes)`);
           } catch (e) {
             setDecodeError(`Resize failed: ${e instanceof Error ? e.message : String(e)}`);

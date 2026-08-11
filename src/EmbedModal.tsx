@@ -5,13 +5,13 @@ import { PLATFORM_WIDTHS, getQimCapacityForFile } from "./stego-qim";
 import type { ProfileData } from "./types";
 
 const PLATFORM_LABELS: Record<string, string> = {
-  instagram: "Instagram (1080px)",
-  facebook: "Facebook (2048px)",
+  instagram: "Instagram (1080px model)",
+  facebook: "Facebook (2048px model)",
   twitter: "Twitter/X (600px model)",
   whatsapp_standard: "WhatsApp Standard (800px model)",
-  whatsapp_hd: "WhatsApp HD (4096px)",
-  telegram_photo: "Telegram (1920px)",
-  imessage: "iMessage (1280px)",
+  whatsapp_hd: "WhatsApp HD (4096px model)",
+  telegram_photo: "Telegram Photo (1920px model)",
+  imessage: "iMessage (1280px model)",
   none: "No resize (original size)",
 };
 

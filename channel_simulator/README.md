@@ -21,14 +21,14 @@ cd .. && cargo build --release --bin stegstr-cli
 ```python
 from channel import simulate, PROFILES
 
-# Simulate WhatsApp: resize to 800px, JPEG Q 65, 4:2:0
-jpeg_bytes = simulate("stego.png", "whatsapp")
+# Simulate WhatsApp Standard photo processing: resize to 800px, JPEG Q 65, 4:2:0
+jpeg_bytes = simulate("stego.png", "whatsapp_standard")
 
 # With output file
 simulate("stego.png", "instagram", output_path="after_instagram.jpg")
 ```
 
-Profiles: `whatsapp`, `instagram`, `facebook`, `twitter` (see `channel.PROFILES`).
+Profiles: `whatsapp_standard`, `whatsapp_hd`, `instagram`, `facebook`, `twitter`, `telegram_photo`, `imessage` (see `channel.PROFILES`). `whatsapp_standard` and `whatsapp_hd` are separate photo-processing models; sending as a file is intentionally not represented as a compression profile.
 
 ## Tests
 
@@ -50,7 +50,7 @@ from PIL import Image
 cover = Path('fixture_cover.png')
 if not cover.exists():
     Image.new('RGB', (512,512), (120,140,160)).save(cover)
-for name in ['whatsapp', 'instagram', 'twitter']:
+for name in ['whatsapp_standard', 'instagram', 'twitter']:
     jpeg = simulate(cover, name)
     assert jpeg[:2] == b'\xff\xd8'
 print('Channel simulator tests OK')
@@ -66,7 +66,7 @@ if cli:
         tmp = Path(tmp)
         stego = tmp / 'stego.png'
         subprocess.run([str(cli), 'embed', str(cover), '-o', str(stego), '--payload-base64', base64.b64encode(payload).decode()], capture_output=True)
-        for name in ['whatsapp', 'instagram']:
+        for name in ['whatsapp_standard', 'instagram']:
             simulate(stego, name, output_path=tmp / (name + '.jpg'))
             ok, dec = run_decode(cli, tmp / (name + '.jpg'))
             assert not (ok and dec == payload), 'DWT should not survive channel'
