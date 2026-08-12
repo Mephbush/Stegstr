@@ -4,7 +4,7 @@
  */
 
 import type { NostrEvent } from "./types";
-import { verifyEvent } from "./nostr-stub";
+import { finishEventAsync, verifyEvent } from "./nostr-stub";
 
 /** URL where the app fetches relay list (JSON with "relays" array). */
 export const STEGSTR_CONFIG_URL = "https://www.stegstr.com/config/relay.json";
@@ -65,7 +65,8 @@ function connectRelay(
   ourPubkeys: string[],
   onEvent: RelayEventCallback,
   onEose?: () => void,
-  onError?: (err: unknown) => void
+  onError?: (err: unknown) => void,
+  authSecretKey?: Uint8Array
 ): RelayHandle {
   let closed = false;
   let ws: WebSocket | null = null;
@@ -169,6 +170,17 @@ function connectRelay(
         if (closed) return;
         try {
           const msg = JSON.parse(ev.data as string) as unknown[];
+          if (msg[0] === "AUTH" && typeof msg[1] === "string" && authSecretKey) {
+            void finishEventAsync(
+              {
+                kind: 22242,
+                content: "",
+                tags: [["relay", relayUrl], ["challenge", msg[1]]],
+                created_at: Math.floor(Date.now() / 1000),
+              },
+              authSecretKey,
+            ).then((authEvent) => send(["AUTH", authEvent])).catch((err) => onError?.(err));
+          }
           if (msg[0] === "EVENT" && msg[2]) {
             const e = msg[2] as NostrEvent;
             if (verifyEvent(e)) {
@@ -278,7 +290,8 @@ export function connectRelays(
   onEvent: RelayEventCallback,
   onEose?: () => void,
   onError?: (err: unknown) => void,
-  relays: string[] = DEFAULT_RELAYS
+  relays: string[] = DEFAULT_RELAYS,
+  authSecretKey?: Uint8Array
 ): ConnectRelaysResult {
   const handles: RelayHandle[] = [];
   let eoseCount = 0;
@@ -294,7 +307,8 @@ export function connectRelays(
         eoseCount++;
         if (eoseCount === 1) onEose?.();
       },
-      onError
+      onError,
+      authSecretKey
     );
     handles.push(h);
   }
@@ -362,46 +376,4 @@ export function connectRelays(
       handles.forEach((h) => h.send(["REQ", subId, { kinds: [1], until, limit: 100 }]));
     },
   };
-}
-
-const PUBLISH_OK_TIMEOUT_MS = 3000;
-
-/** Publish a signed event to relays. Keeps socket open until relay sends OK or timeout. */
-export async function publishEvent(event: NostrEvent, relays: string[] = DEFAULT_RELAYS): Promise<boolean> {
-  const results = await Promise.all(relays.map((url) => new Promise<boolean>((resolve) => {
-    let settled = false;
-    let ws: WebSocket | null = null;
-    let timeout: ReturnType<typeof setTimeout>;
-    const finish = (accepted: boolean) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      try {
-        ws?.close();
-      } catch (_) {}
-      resolve(accepted);
-    };
-    timeout = setTimeout(() => finish(false), PUBLISH_OK_TIMEOUT_MS);
-    try {
-      ws = new WebSocket(url);
-      ws.onopen = () => {
-        try {
-          ws?.send(JSON.stringify(["EVENT", event]));
-        } catch (_) {
-          finish(false);
-        }
-      };
-      ws.onmessage = (ev) => {
-        try {
-          const msg = JSON.parse(ev.data as string) as unknown[];
-          if (msg[0] === "OK" && msg[1] === event.id) finish(msg[2] === true);
-        } catch (_) {}
-      };
-      ws.onerror = () => finish(false);
-      ws.onclose = () => finish(false);
-    } catch (_) {
-      finish(false);
-    }
-  })));
-  return results.some(Boolean);
 }

@@ -8,7 +8,7 @@ const PLATFORM_LABELS: Record<string, string> = {
   instagram: "Instagram (1080px model)",
   facebook: "Facebook (2048px model)",
   twitter: "Twitter/X (600px model)",
-  whatsapp_standard: "WhatsApp Standard (800px model)",
+  whatsapp: "WhatsApp (800px model)",
   whatsapp_hd: "WhatsApp HD (4096px model)",
   telegram_photo: "Telegram Photo (1920px model)",
   imessage: "iMessage (1280px model)",

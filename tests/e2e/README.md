@@ -13,7 +13,7 @@ When running with a test profile (`npm run launch:both`), each instance shows **
 4. **Instance B**: Click **Detect from exchange**
 5. Verify B sees the post.
 
-No file dialogs for save/detect—exchange path is `/tmp/stegstr-test-exchange/exchange.png`.
+No file dialogs for save/detect—exchange path is `/tmp/stegstr-test-exchange/exchange.jpg`.
 
 ## Permutation Matrix
 
@@ -47,7 +47,7 @@ Tauri's built-in WebDriver does **not** support macOS. For automated E2E on macO
 
 ## Shared Exchange Path
 
-Images are exchanged via `/tmp/stegstr-test-exchange/exchange.png`. Ensure both instances can read/write this path.
+Images are exchanged via `/tmp/stegstr-test-exchange/exchange.jpg`. Ensure both instances can read/write this path.
 
 ## Logging
 

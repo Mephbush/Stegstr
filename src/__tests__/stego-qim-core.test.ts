@@ -213,7 +213,7 @@ describe("PLATFORM_WIDTHS", () => {
     expect(PLATFORM_WIDTHS).toHaveProperty("instagram");
     expect(PLATFORM_WIDTHS).toHaveProperty("facebook");
     expect(PLATFORM_WIDTHS).toHaveProperty("twitter");
-    expect(PLATFORM_WIDTHS).toHaveProperty("whatsapp_standard");
+    expect(PLATFORM_WIDTHS).toHaveProperty("whatsapp");
     expect(PLATFORM_WIDTHS).toHaveProperty("whatsapp_hd");
     expect(PLATFORM_WIDTHS).toHaveProperty("telegram_photo");
     expect(PLATFORM_WIDTHS).toHaveProperty("imessage");
@@ -221,7 +221,7 @@ describe("PLATFORM_WIDTHS", () => {
   });
 
   it("uses conservative widths for the harshest modeled channels", () => {
-    expect(PLATFORM_WIDTHS.whatsapp_standard).toBe(800);
+    expect(PLATFORM_WIDTHS.whatsapp).toBe(800);
     expect(PLATFORM_WIDTHS.twitter).toBe(600);
     expect(PLATFORM_WIDTHS.instagram).toBe(1080);
   });

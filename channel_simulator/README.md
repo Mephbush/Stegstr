@@ -22,13 +22,13 @@ cd .. && cargo build --release --bin stegstr-cli
 from channel import simulate, PROFILES
 
 # Simulate WhatsApp Standard photo processing: resize to 800px, JPEG Q 65, 4:2:0
-jpeg_bytes = simulate("stego.png", "whatsapp_standard")
+jpeg_bytes = simulate("stego.png", "whatsapp")
 
 # With output file
 simulate("stego.png", "instagram", output_path="after_instagram.jpg")
 ```
 
-Profiles: `whatsapp_standard`, `whatsapp_hd`, `instagram`, `facebook`, `twitter`, `telegram_photo`, `imessage` (see `channel.PROFILES`). `whatsapp_standard` and `whatsapp_hd` are separate photo-processing models; sending as a file is intentionally not represented as a compression profile.
+Profiles: `whatsapp`, `whatsapp_hd`, `instagram`, `facebook`, `twitter`, `telegram_photo`, `imessage` (see `channel.PROFILES`). `whatsapp` and `whatsapp_hd` are separate photo-processing models; sending as a file is intentionally not represented as a compression profile.
 
 ## Tests
 
@@ -50,7 +50,7 @@ from PIL import Image
 cover = Path('fixture_cover.png')
 if not cover.exists():
     Image.new('RGB', (512,512), (120,140,160)).save(cover)
-for name in ['whatsapp_standard', 'instagram', 'twitter']:
+for name in ['whatsapp', 'instagram', 'twitter']:
     jpeg = simulate(cover, name)
     assert jpeg[:2] == b'\xff\xd8'
 print('Channel simulator tests OK')
@@ -66,7 +66,7 @@ if cli:
         tmp = Path(tmp)
         stego = tmp / 'stego.png'
         subprocess.run([str(cli), 'embed', str(cover), '-o', str(stego), '--payload-base64', base64.b64encode(payload).decode()], capture_output=True)
-        for name in ['whatsapp_standard', 'instagram']:
+        for name in ['whatsapp', 'instagram']:
             simulate(stego, name, output_path=tmp / (name + '.jpg'))
             ok, dec = run_decode(cli, tmp / (name + '.jpg'))
             assert not (ok and dec == payload), 'DWT should not survive channel'
@@ -78,30 +78,27 @@ if cli:
 
 Current **DWT (Haar 2D) + LSB** embedding does **not** survive any simulated channel (WhatsApp, Instagram, Facebook, Twitter). After resize + JPEG re-encode, decode fails or returns wrong data. This validates the need for a DCT-based robust path (see plan).
 
-## DCT-robust prototype
+## QIM compatibility path
 
-Optional: install `jpeglib` and `reedsolo` for DCT-domain steganography that can survive some channel simulation:
+The supported robust image path is QIM in the DCT domain. It uses platform-aware pre-sizing, JPEG output, repeated bits, and Reed–Solomon recovery:
 
 ```bash
 pip install jpeglib reedsolo
 ```
 
 ```python
-from dct_stego import encode_dct, decode_dct
 from pathlib import Path
 from channel import simulate
+from dct_variants import encode_dct_qim, decode_dct_qim
 
-# Cover must be JPEG (or path to PNG; it will be converted)
-cover_jpg = Path("fixture_cover.jpg")
-payload = b"your payload"
-stego_jpeg_bytes = encode_dct(cover_jpg, payload)
-# After "channel" (e.g. Instagram-like):
-after = simulate("stego.jpg", "instagram")  # or pass bytes via temp file
-decoded = decode_dct(after)
-# Decoded should match payload for Instagram/Twitter-like profiles; WhatsApp/Facebook may fail.
+cover = Path("fixture_cover.jpg")
+stego = Path("stego.jpg")
+stego.write_bytes(encode_dct_qim(cover, b"your payload", platform="whatsapp"))
+after = simulate(stego, "whatsapp", output_path="after_whatsapp.jpg")
+assert decode_dct_qim(after) == b"your payload"
 ```
 
-Payload format is compatible (STEGSTR magic + length + payload) with Reed–Solomon error correction. In tests, DCT survives **Instagram** and **Twitter**-like channels; **WhatsApp** and **Facebook**-like (harsher resize/Q) may still corrupt the payload.
+The profiles are conservative compatibility models, not claims about proprietary platform settings. Photo delivery and document/file delivery are different transports; sending the original JPEG as a file avoids the photo recompression path.
 
 ## Optional: STEGSTR_CLI
 

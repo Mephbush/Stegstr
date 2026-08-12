@@ -25,7 +25,7 @@ from test_channel_robustness import (
 )
 
 PROFILES = [
-    "whatsapp_standard",
+    "whatsapp",
     "whatsapp_hd",
     "instagram",
     "facebook",

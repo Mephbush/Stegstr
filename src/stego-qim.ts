@@ -47,7 +47,7 @@ export const PLATFORM_WIDTHS: Record<string, number> = {
   instagram: 1080,
   facebook: 2048,
   twitter: 600,
-  whatsapp_standard: 800,
+  whatsapp: 800,
   whatsapp_hd: 4096,
   telegram_photo: 1920,
   imessage: 1280,

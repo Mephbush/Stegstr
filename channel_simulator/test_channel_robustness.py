@@ -101,7 +101,7 @@ def test_payload():
 def test_channel_simulator_standalone():
     """Channel simulator runs and produces valid JPEG with expected dimensions."""
     cover = make_cover_image()
-    for name in ["whatsapp_standard", "instagram", "twitter"]:
+    for name in ["whatsapp", "instagram", "twitter"]:
         jpeg = simulate(cover, name)
         assert jpeg[:2] == b"\xff\xd8"
         from PIL import Image
@@ -113,7 +113,7 @@ def test_channel_simulator_standalone():
 
 def test_all_modeled_profiles_are_available():
     expected = {
-        "whatsapp_standard",
+        "whatsapp",
         "whatsapp_hd",
         "instagram",
         "facebook",
@@ -122,8 +122,7 @@ def test_all_modeled_profiles_are_available():
         "imessage",
     }
     assert expected.issubset(PROFILES)
-    assert "whatsapp" not in PROFILES
-    assert PROFILES["whatsapp_standard"] != PROFILES.get("whatsapp_hd")
+    assert PROFILES["whatsapp"] != PROFILES.get("whatsapp_hd")
 
 
 def test_channel_simulator_output_path():
@@ -160,7 +159,7 @@ def test_dwt_fails_after_channel_baseline(cli_path: Path, cover_path: Path, test
         assert stego_png.exists()
 
         results: list[tuple[str, bool, str]] = []
-        for profile_name in ["whatsapp_standard", "instagram", "facebook", "twitter"]:
+        for profile_name in ["whatsapp", "instagram", "facebook", "twitter"]:
             jpeg_path = Path(tmp) / f"after_{profile_name}.jpg"
             simulate(stego_png, profile_name, output_path=jpeg_path)
             success, decoded = run_decode(cli_path, jpeg_path)
@@ -195,7 +194,7 @@ def test_encode_simulate_decode_matrix(cli_path: Path | None, cover_path: Path, 
             pytest.skip("CLI embed failed")
 
         matrix: list[tuple[str, str, bool]] = []
-        for profile_name in ["whatsapp_standard", "instagram", "facebook", "twitter"]:
+        for profile_name in ["whatsapp", "instagram", "facebook", "twitter"]:
             jpeg_path = Path(tmp) / f"out_{profile_name}.jpg"
             simulate(stego_png, profile_name, output_path=jpeg_path)
             success, decoded = run_decode(cli_path, jpeg_path)
@@ -233,7 +232,7 @@ def test_qim_survives_modeled_channels(cover_path: Path, test_payload: bytes):
         pytest.skip("QIM dependencies not installed")
     results = []
     profiles = [
-        "whatsapp_standard",
+        "whatsapp",
         "whatsapp_hd",
         "instagram",
         "facebook",
@@ -271,7 +270,7 @@ def test_dct_survives_some_channels(cover_path: Path, test_payload: bytes):
         tmp = Path(tmp)
         stego_path = tmp / "stego.jpg"
         stego_path.write_bytes(stego_bytes)
-        for profile_name in ["whatsapp_standard", "instagram", "facebook", "twitter"]:
+        for profile_name in ["whatsapp", "instagram", "facebook", "twitter"]:
             after_path = tmp / f"after_{profile_name}.jpg"
             after_bytes = simulate(stego_path, profile_name, output_path=after_path)
             dec = decode_dct(after_bytes)

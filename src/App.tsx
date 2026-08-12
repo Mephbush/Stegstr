@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import * as Nostr from "./nostr-stub";
 import { isWeb, pickImageFile, downloadBlob } from "./platform-web";
 import { getTauri } from "./platform-desktop";
-import { connectRelays, publishEvent, DEFAULT_RELAYS, getRelayUrls } from "./relay";
+import { connectRelays, DEFAULT_RELAYS, getRelayUrls } from "./relay";
 import { uint8ArrayToBase64 } from "./utils";
 import {
   decodeQimImageFile,
@@ -45,6 +45,7 @@ const BASE_MUTE_PUBKEYS = "stegstr_mute_pubkeys";
 const BASE_MUTE_WORDS = "stegstr_mute_words";
 const BASE_RELAYS = "stegstr_relays";
 const BASE_ZAP_QUEUE = "stegstr_zap_queue";
+const BASE_PUBLISH_QUEUE = "stegstr_publish_queue";
 const BASE_DM_READ = "stegstr_dm_read_timestamps";
 const BASE_NOTIF_READ = "stegstr_notification_read_at";
 
@@ -101,6 +102,27 @@ type QueuedZap = {
   createdAt: number;
   zapStreamUrl: string;
 };
+
+type QueuedPublish = {
+  event: NostrEvent;
+  queuedAt: number;
+};
+
+function loadQueuedPublishes(profile: string | null): QueuedPublish[] {
+  try {
+    const raw = localStorage.getItem(getStorageKey(BASE_PUBLISH_QUEUE, profile));
+    if (!raw) return [];
+    const arr = JSON.parse(raw) as unknown[];
+    if (!Array.isArray(arr)) return [];
+    return arr.filter((x): x is QueuedPublish => {
+      if (typeof x !== "object" || x === null) return false;
+      const item = x as QueuedPublish;
+      return typeof item.queuedAt === "number" && typeof item.event === "object" && item.event !== null && typeof item.event.id === "string";
+    });
+  } catch (_) {
+    return [];
+  }
+}
 
 function loadQueuedZaps(profile: string | null): QueuedZap[] {
   try {
@@ -301,6 +323,9 @@ function App({ profile }: { profile: string | null }) {
   const [stegoLogs, setStegoLogs] = useState<string[]>([]);
   const [dragOverStego, setDragOverStego] = useState(false);
   const [queuedZaps, setQueuedZaps] = useState<QueuedZap[]>(() => loadQueuedZaps(profile));
+  const [queuedPublishes, setQueuedPublishes] = useState<QueuedPublish[]>(() => loadQueuedPublishes(profile));
+  const queuedPublishesRef = useRef(queuedPublishes);
+  const publishingIdsRef = useRef(new Set<string>());
   const relayRef = useRef<ReturnType<typeof connectRelays> | null>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
   const postMediaInputRef = useRef<HTMLInputElement | null>(null);
@@ -308,6 +333,7 @@ function App({ profile }: { profile: string | null }) {
   const [loadingMore, setLoadingMore] = useState(false);
   const eventBufferRef = useRef<NostrEvent[]>([]);
   const FLUSH_MS = 120;
+  queuedPublishesRef.current = queuedPublishes;
 
   useEffect(() => {
     try {
@@ -330,6 +356,11 @@ function App({ profile }: { profile: string | null }) {
       localStorage.setItem(getStorageKey(BASE_ZAP_QUEUE, profile), JSON.stringify(queuedZaps));
     } catch (_) {}
   }, [queuedZaps, profile]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(getStorageKey(BASE_PUBLISH_QUEUE, profile), JSON.stringify(queuedPublishes));
+    } catch (_) {}
+  }, [queuedPublishes, profile]);
   useEffect(() => {
     try {
       localStorage.setItem(getStorageKey(BASE_DM_READ, profile), JSON.stringify(lastReadTimestamps));
@@ -634,13 +665,22 @@ function App({ profile }: { profile: string | null }) {
     .sort((a, b) => b.sortAt - a.sortAt);
 
   const publishViaRelay = useCallback((ev: NostrEvent) => {
-    const delivery = relayRef.current
-      ? relayRef.current.publish(ev)
-      : publishEvent(ev, relayUrls);
-    void delivery.then((accepted) => {
-      if (!accepted) setStatus("Relay did not acknowledge this event; it will retry while Network is on.");
-    });
-  }, [relayUrls]);
+    setQueuedPublishes((prev) => prev.some((item) => item.event.id === ev.id) ? prev : [...prev, { event: ev, queuedAt: Date.now() }].slice(-100));
+    const relay = relayRef.current;
+    if (!relay) {
+      setStatus("Event queued until Network is ready.");
+      return;
+    }
+    if (publishingIdsRef.current.has(ev.id)) return;
+    publishingIdsRef.current.add(ev.id);
+    void relay.publish(ev).then((accepted) => {
+      if (accepted) {
+        setQueuedPublishes((prev) => prev.filter((item) => item.event.id !== ev.id));
+      } else {
+        setStatus("Relay did not acknowledge this event; it remains queued for retry.");
+      }
+    }).finally(() => publishingIdsRef.current.delete(ev.id));
+  }, []);
 
   useEffect(() => {
     const authors = Array.from(viewingPubkeys).filter((pk) => pk && /^[a-fA-F0-9]{64}$/.test(pk));
@@ -672,7 +712,8 @@ function App({ profile }: { profile: string | null }) {
       },
       () => setRelayStatus("Synced"),
       (err) => setRelayStatus("Error: " + (err instanceof Error ? err.message : String(err))),
-      relayUrls
+      relayUrls,
+      canPublishToNetwork ? Nostr.hexToBytes(effectivePrivKey) : undefined
     );
     const flush = () => {
       const batch = eventBufferRef.current;
@@ -733,7 +774,12 @@ function App({ profile }: { profile: string | null }) {
       eventBufferRef.current = [];
       setRelayStatus("");
     };
-  }, [networkEnabled, viewingPubkeysKey, relayUrlsKey]);
+  }, [networkEnabled, viewingPubkeysKey, relayUrlsKey, canPublishToNetwork, effectivePrivKey]);
+
+  useEffect(() => {
+    if (relayStatus !== "Synced" || !relayRef.current || queuedPublishesRef.current.length === 0) return;
+    queuedPublishesRef.current.forEach(({ event }) => publishViaRelay(event));
+  }, [relayStatus, publishViaRelay]);
 
   useEffect(() => {
     const sentinel = loadMoreSentinelRef.current;
@@ -2576,7 +2622,7 @@ function App({ profile }: { profile: string | null }) {
               <button type="button" className="btn-stego btn-primary" onClick={handleSaveToImage} disabled={detecting || embedding}>Embed image</button>
               {profile != null && !isWeb() && (
                 <>
-                  <button type="button" className="btn-stego btn-quick-test" onClick={handleDetectFromExchange} disabled={detecting} title="1-click: detect from /tmp/stegstr-test-exchange/exchange.png">Detect from exchange</button>
+                  <button type="button" className="btn-stego btn-quick-test" onClick={handleDetectFromExchange} disabled={detecting} title="1-click: detect from /tmp/stegstr-test-exchange/exchange.jpg">Detect from exchange</button>
                   <button type="button" className="btn-stego btn-quick-test" onClick={handleEmbedToExchange} disabled={detecting} title="2-click: pick cover → save to exchange path">Embed to exchange</button>
                 </>
               )}

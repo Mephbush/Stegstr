@@ -42,7 +42,7 @@ from dct_stego import (
 TCM_AC_COUNT = 16
 TCM_RS_NSYM = 48
 RS64_NSYM = 64
-QIM_DELTA = 14  # Tuned: 14 needed for WhatsApp standard (Q=65); 10 works for most others
+QIM_DELTA = 14  # Tuned for the modeled WhatsApp photo path (Q=65).
 QIM_RS_NSYM = 128  # Stronger parity for harsh channels (WhatsApp)
 QIM_REPEAT = 5  # Tuned: 5x repeat for robust majority voting across all platforms
 QIM_MAX_WIDTH = 0  # 0 = use platform-matched pre-resize (see QIM_PLATFORM_WIDTHS)
@@ -54,7 +54,7 @@ QIM_PLATFORM_WIDTHS = {
     "instagram": 1080,
     "facebook": 2048,
     "twitter": 600,
-    "whatsapp_standard": 800,
+    "whatsapp": 800,
     "whatsapp_hd": 4096,
     "telegram_photo": 1920,
     "imessage": 1280,
