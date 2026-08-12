@@ -24,7 +24,15 @@ from test_channel_robustness import (
     _SCRIPT_DIR,
 )
 
-PROFILES = ["whatsapp", "instagram", "facebook", "twitter"]
+PROFILES = [
+    "whatsapp",
+    "whatsapp_hd",
+    "instagram",
+    "facebook",
+    "twitter",
+    "telegram_photo",
+    "imessage",
+]
 TEST_PAYLOAD = b"channel_test!"
 
 
@@ -112,10 +120,24 @@ def run_dct_rs64_matrix(cover_path: Path, cover_jpg: Path) -> list[tuple[str, st
 
 def run_dct_qim_matrix(cover_path: Path, cover_jpg: Path) -> list[tuple[str, str, bool]]:
     try:
-        from dct_variants import encode_dct_qim, decode_dct_qim
+        from dct_variants import decode_dct_qim, encode_dct_qim
     except ImportError:
         return []
-    return _run_dct_variant(cover_path, cover_jpg, "dct_qim", encode_dct_qim, decode_dct_qim)
+    matrix = []
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        for name in PROFILES:
+            try:
+                stego_bytes = encode_dct_qim(cover_path, TEST_PAYLOAD, platform=name)
+            except Exception:
+                matrix.append(("dct_qim", name, False))
+                continue
+            stego_path = tmp / f"stego_{name}.jpg"
+            stego_path.write_bytes(stego_bytes)
+            after = simulate(stego_path, name, output_path=tmp / f"after_{name}.jpg")
+            decoded = decode_dct_qim(after)
+            matrix.append(("dct_qim", name, decoded == TEST_PAYLOAD if decoded else False))
+    return matrix
 
 
 def main() -> None:

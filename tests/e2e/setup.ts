@@ -9,7 +9,7 @@
  *
  * For macOS without automation plugin: use semi-manual flow:
  * 1. Run ./scripts/launch-both-profiles.sh
- * 2. Instance A: create content, Embed → save to /tmp/stegstr-test-exchange/exchange.png
+ * 2. Instance A: create content, Embed → save to /tmp/stegstr-test-exchange/exchange.jpg
  * 3. Instance B: Detect → select file from that path (or drag-drop)
  * 4. Assert B sees the content
  */

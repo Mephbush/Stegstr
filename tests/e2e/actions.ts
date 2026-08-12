@@ -25,7 +25,7 @@ export const EMBED_FLOWS: Record<Action, EmbedFlow["steps"]> = {
 
 export const DETECT_FLOW = [
   "Click Detect image or drag-drop",
-  "Select or drop exchange.png",
+  "Select or drop exchange.jpg",
   "Verify events merged into feed",
 ];
 

@@ -50,6 +50,26 @@ npm run build:mac   # or build:win, build:linux
 
 See the repo for platform-specific build deps (e.g. Xcode CLI tools, Visual Studio Build Tools, Linux dev packages).
 
+## Test the submitted version
+
+```bash
+npm install
+npm run build
+npm test
+```
+
+For the desktop exchange flow, use `npm run build:mac` (or the matching platform build), then `npm run launch:both`. Post on one instance, choose **Embed to exchange**, and use **Detect from exchange** on the other instance. The shared test image is a JPEG at `/tmp/stegstr-test-exchange/exchange.jpg`.
+
+The enclosed channel simulator models resize, JPEG recompression, chroma subsampling, metadata removal, and Instagram aspect cropping:
+
+```bash
+cd channel_simulator
+pip install -r requirements.txt
+python test_channel_robustness.py
+```
+
+The simulator is an offline compatibility check; the app’s normal transport uses the same QIM JPEG workflow in the browser and desktop paths.
+
 ## Links
 
 - [Website](https://stegstr.com) — Downloads, getting started, wiki

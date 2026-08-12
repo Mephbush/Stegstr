@@ -1,6 +1,5 @@
 pub mod stego;
 pub mod stego_crypto;
-pub mod stego_dot;
 
 use base64::Engine;
 use serde::{Deserialize, Serialize};
@@ -51,29 +50,6 @@ fn decode_stego_image(path: String) -> Result<StegoDecodeResult, String> {
 }
 
 #[tauri::command]
-fn decode_stego_dot(path: String) -> Result<StegoDecodeResult, String> {
-    let p = normalize_path(&path);
-    match stego_dot::decode(std::path::Path::new(p)) {
-        Ok(payload) => {
-            let payload_str = match String::from_utf8(payload.clone()) {
-                Ok(s) if s.trim_start().starts_with('{') => s,
-                _ => format!("base64:{}", base64::engine::general_purpose::STANDARD.encode(&payload)),
-            };
-            Ok(StegoDecodeResult {
-                ok: true,
-                payload: Some(payload_str),
-                error: None,
-            })
-        }
-        Err(e) => Ok(StegoDecodeResult {
-            ok: false,
-            payload: None,
-            error: Some(e),
-        }),
-    }
-}
-
-#[tauri::command]
 fn encode_stego_image(cover_path: String, output_path: String, payload: String) -> Result<StegoEncodeResult, String> {
     let cover = normalize_path(&cover_path);
     let output = normalize_path(&output_path);
@@ -102,57 +78,6 @@ fn encode_stego_image(cover_path: String, output_path: String, payload: String) 
     }
 }
 
-#[tauri::command]
-fn encode_stego_dot(cover_path: String, output_path: String, payload: String) -> Result<StegoEncodeResult, String> {
-    let cover = normalize_path(&cover_path);
-    let output_raw = normalize_path(&output_path);
-    let output_path_buf = std::path::Path::new(output_raw).with_extension("png");
-    let output = output_path_buf.to_string_lossy().to_string();
-    let payload_bytes: Vec<u8> = if payload.starts_with("base64:") {
-        base64::engine::general_purpose::STANDARD
-            .decode(payload.trim_start_matches("base64:").as_bytes())
-            .map_err(|e| e.to_string())?
-    } else {
-        payload.into_bytes()
-    };
-    let encode_result = stego_dot::encode(std::path::Path::new(cover), &payload_bytes);
-    match encode_result {
-        Ok(png_bytes) => {
-            std::fs::write(output.clone(), png_bytes).map_err(|e| e.to_string())?;
-            let sig = std::fs::read(&output).map_err(|e| e.to_string())?;
-            if sig.len() < 8 || sig[..8] != [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a] {
-                return Ok(StegoEncodeResult {
-                    ok: false,
-                    path: None,
-                    error: Some("Dot encoder output is not PNG".to_string()),
-                });
-            }
-            Ok(StegoEncodeResult {
-                ok: true,
-                path: Some(output.to_string()),
-                error: None,
-            })
-        }
-        Err(e) => Ok(StegoEncodeResult {
-            ok: false,
-            path: None,
-            error: Some(e),
-        }),
-    }
-}
-
-#[tauri::command]
-fn check_png_signature(path: String) -> Result<bool, String> {
-    let p = normalize_path(&path);
-    let sig = std::fs::read(p).map_err(|e| e.to_string())?;
-    Ok(sig.len() >= 8 && sig[..8] == [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
-}
-
-#[tauri::command]
-fn get_dot_capacity(path: String) -> Result<usize, String> {
-    let p = normalize_path(&path);
-    stego_dot::max_payload_bytes(std::path::Path::new(p))
-}
 #[tauri::command]
 fn stegstr_log(
     level: String,
@@ -192,13 +117,6 @@ fn stegstr_log(
 }
 
 #[tauri::command]
-fn get_exchange_path() -> Result<String, String> {
-    let dir = std::env::temp_dir().join("stegstr-test-exchange");
-    let _ = std::fs::create_dir_all(&dir);
-    Ok(dir.join("exchange.png").to_string_lossy().to_string())
-}
-
-#[tauri::command]
 fn get_exchange_path_qim() -> Result<String, String> {
     let dir = std::env::temp_dir().join("stegstr-test-exchange");
     let _ = std::fs::create_dir_all(&dir);
@@ -226,7 +144,7 @@ fn qim_cli_path() -> std::path::PathBuf {
 }
 
 #[tauri::command]
-fn encode_stego_qim(cover_path: String, output_path: String, payload: String) -> Result<StegoEncodeResult, String> {
+fn encode_stego_qim(cover_path: String, output_path: String, payload: String, platform: Option<String>) -> Result<StegoEncodeResult, String> {
     let cover = normalize_path(&cover_path);
     let output = normalize_path(&output_path);
     let qim_cli = qim_cli_path();
@@ -245,13 +163,17 @@ fn encode_stego_qim(cover_path: String, output_path: String, payload: String) ->
     } else {
         base64::engine::general_purpose::STANDARD.encode(payload.as_bytes())
     };
-    let output_buf = std::process::Command::new("python3")
+    let mut command = std::process::Command::new("python3");
+    command
         .arg(&qim_cli)
         .arg("encode")
         .arg(cover)
         .arg(output)
-        .arg(&payload_b64)
-        .output()
+        .arg(&payload_b64);
+    if let Some(platform) = platform.filter(|value| !value.is_empty()) {
+        command.arg(platform);
+    }
+    let output_buf = command.output()
         .map_err(|e| format!("QIM encode failed: {}", e))?;
     if !output_buf.status.success() {
         let err = String::from_utf8_lossy(&output_buf.stderr);
@@ -266,6 +188,28 @@ fn encode_stego_qim(cover_path: String, output_path: String, payload: String) ->
         path: Some(output.to_string()),
         error: None,
     })
+}
+
+#[tauri::command]
+fn get_qim_capacity(path: String, platform: Option<String>) -> Result<usize, String> {
+    let p = normalize_path(&path);
+    let qim_cli = qim_cli_path();
+    if !qim_cli.exists() {
+        return Err(format!("QIM script not found at {}", qim_cli.display()));
+    }
+    let mut command = std::process::Command::new("python3");
+    command.arg(&qim_cli).arg("capacity").arg(p);
+    if let Some(platform) = platform.filter(|value| !value.is_empty()) {
+        command.arg(platform);
+    }
+    let output = command.output().map_err(|e| format!("QIM capacity failed: {}", e))?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .parse::<usize>()
+        .map_err(|e| format!("Invalid QIM capacity: {}", e))
 }
 
 #[tauri::command]
@@ -365,15 +309,11 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             decode_stego_image,
             encode_stego_image,
-            decode_stego_dot,
-            encode_stego_dot,
-            get_dot_capacity,
-            check_png_signature,
             decode_stego_qim,
             encode_stego_qim,
+            get_qim_capacity,
             get_desktop_path,
             get_test_profile,
-            get_exchange_path,
             get_exchange_path_qim,
             reveal_in_finder,
             stegstr_log

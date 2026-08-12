@@ -2,19 +2,16 @@ import { useState, useEffect } from "react";
 import * as Nostr from "./nostr-stub";
 import { isWeb, pickImageFile } from "./platform-web";
 import { PLATFORM_WIDTHS, getQimCapacityForFile } from "./stego-qim";
-import { getDotCapacityForFile } from "./stego-dot-web";
 import type { ProfileData } from "./types";
 
-export type StegoMethod = "qim" | "dot";
-
 const PLATFORM_LABELS: Record<string, string> = {
-  instagram: "Instagram (1080px)",
-  facebook: "Facebook (2048px)",
-  twitter: "Twitter/X (1600px)",
-  whatsapp_standard: "WhatsApp Standard (1600px)",
-  whatsapp_hd: "WhatsApp HD (4096px)",
-  telegram_photo: "Telegram (1920px)",
-  imessage: "iMessage (1280px)",
+  instagram: "Instagram (1080px model)",
+  facebook: "Facebook (2048px model)",
+  twitter: "Twitter/X (600px model)",
+  whatsapp: "WhatsApp (800px model)",
+  whatsapp_hd: "WhatsApp HD (4096px model)",
+  telegram_photo: "Telegram Photo (1920px model)",
+  imessage: "iMessage (1280px model)",
   none: "No resize (original size)",
 };
 
@@ -32,8 +29,6 @@ export interface EmbedModalProps {
   recipients: string[];
   onRecipientsChange: (recipients: string[]) => void;
   profiles: Record<string, ProfileData>;
-  stegoMethod: StegoMethod;
-  onStegoMethodChange: (method: StegoMethod) => void;
   targetPlatform: string;
   onTargetPlatformChange: (platform: string) => void;
 }
@@ -52,8 +47,6 @@ export function EmbedModal({
   recipients,
   onRecipientsChange,
   profiles,
-  stegoMethod,
-  onStegoMethodChange,
   targetPlatform,
   onTargetPlatformChange,
 }: EmbedModalProps) {
@@ -68,25 +61,18 @@ export function EmbedModal({
     let cancelled = false;
     (async () => {
       try {
-        if (stegoMethod === "qim") {
-          const info = await getQimCapacityForFile(embedCoverFile, targetPlatform);
-          if (!cancelled) {
-            setCapacityInfo(
-              `Capacity: ~${Math.floor(info.capacityBytes / 1024)} KB (${info.width}x${info.height} JPEG)`,
-            );
-          }
-        } else {
-          const bytes = await getDotCapacityForFile(embedCoverFile);
-          if (!cancelled) {
-            setCapacityInfo(`Capacity: ~${Math.floor(bytes / 1024)} KB (PNG)`);
-          }
+        const info = await getQimCapacityForFile(embedCoverFile, targetPlatform);
+        if (!cancelled) {
+          setCapacityInfo(
+            `Capacity: ~${Math.floor(info.capacityBytes / 1024)} KB (${info.width}x${info.height} JPEG)`,
+          );
         }
       } catch {
         if (!cancelled) setCapacityInfo("Could not compute capacity");
       }
     })();
     return () => { cancelled = true; };
-  }, [embedCoverFile, stegoMethod, targetPlatform]);
+  }, [embedCoverFile, targetPlatform]);
 
   const addRecipient = () => {
     const raw = recipientInput.trim();
@@ -112,7 +98,7 @@ export function EmbedModal({
 
         {/* Cover image picker */}
         {isWeb() && (
-          <div className="embed-cover-web" style={{ margin: "0.75rem 0" }}>
+          <div className="embed-cover-web">
             <button
               type="button"
               className="btn-secondary"
@@ -128,12 +114,12 @@ export function EmbedModal({
 
         {/* Capacity info */}
         {capacityInfo && (
-          <p className="muted" style={{ fontSize: "0.85rem" }}>{capacityInfo}</p>
+          <p className="muted embed-capacity-info">{capacityInfo}</p>
         )}
 
         {/* Recipient mode */}
-        <div className="embed-recipient-mode" style={{ margin: "0.75rem 0" }}>
-          <label style={{ marginRight: "1rem" }}>
+        <div className="embed-recipient-mode">
+          <label className="embed-recipient-mode-label">
             <input type="radio" name="embed-mode" checked={recipientMode === "open"} onChange={() => onRecipientModeChange("open")} />
             {" "}Open (any Stegstr user)
           </label>
@@ -143,65 +129,46 @@ export function EmbedModal({
           </label>
         </div>
         {recipientMode === "recipients" && (
-          <div className="embed-recipients" style={{ marginBottom: "0.75rem" }}>
-            <div className="row" style={{ gap: "0.5rem", marginBottom: "0.25rem" }}>
+          <div className="embed-recipients">
+            <div className="row embed-recipient-input-row">
               <input
                 type="text"
                 value={recipientInput}
                 onChange={(e) => onRecipientInputChange(e.target.value)}
                 placeholder="npub or hex pubkey"
-                className="wide"
-                style={{ flex: 1 }}
+                className="wide embed-recipient-input"
               />
               <button type="button" className="btn-secondary" onClick={addRecipient}>
                 Add
               </button>
             </div>
             {recipients.length > 0 && (
-              <ul style={{ listStyle: "none", padding: 0, margin: "0.25rem 0" }}>
+              <ul className="embed-recipient-list">
                 {recipients.map((pk) => (
-                  <li key={pk} style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.85rem" }}>
+                  <li key={pk} className="embed-recipient-item">
                     <span>{profiles[pk]?.name ?? `${pk.slice(0, 12)}…`}</span>
-                    <button type="button" className="btn-delete muted" style={{ fontSize: "0.75rem" }} onClick={() => onRecipientsChange(recipients.filter((p) => p !== pk))}>Remove</button>
+                    <button type="button" className="btn-delete muted embed-recipient-remove" onClick={() => onRecipientsChange(recipients.filter((p) => p !== pk))}>Remove</button>
                   </li>
                 ))}
               </ul>
             )}
-            {recipients.length === 0 && <p className="muted" style={{ fontSize: "0.85rem" }}>Add at least one recipient pubkey.</p>}
+            {recipients.length === 0 && <p className="muted embed-recipient-empty">Add at least one recipient pubkey.</p>}
           </div>
         )}
 
         {/* Advanced options toggle */}
         <button
           type="button"
-          className="btn-link muted"
-          style={{ fontSize: "0.85rem", padding: 0, border: "none", background: "none", cursor: "pointer", textDecoration: "underline" }}
+          className="btn-link muted embed-advanced-toggle"
           onClick={() => setShowAdvanced(!showAdvanced)}
         >
           {showAdvanced ? "Hide advanced options" : "Advanced options"}
         </button>
 
         {showAdvanced && (
-          <div className="embed-advanced" style={{ margin: "0.5rem 0", padding: "0.5rem", border: "1px solid #ddd", borderRadius: "4px" }}>
-            {/* Stego method selector */}
-            <div className="embed-method-selector">
-              <label className="embed-section-label">Encoding method:</label>
-              <div style={{ display: "flex", gap: "1rem" }}>
-                <label style={{ cursor: "pointer" }}>
-                  <input type="radio" name="stego-method" checked={stegoMethod === "qim"} onChange={() => onStegoMethodChange("qim")} />
-                  {" "}QIM (JPEG, robust)
-                </label>
-                <label style={{ cursor: "pointer" }}>
-                  <input type="radio" name="stego-method" checked={stegoMethod === "dot"} onChange={() => onStegoMethodChange("dot")} />
-                  {" "}Dot (PNG, legacy)
-                </label>
-              </div>
-            </div>
-
-            {/* Platform selector (QIM only) */}
-            {stegoMethod === "qim" && (
-              <div className="embed-platform-selector" style={{ marginTop: "0.5rem" }}>
-                <label className="embed-section-label">Target platform:</label>
+          <div className="embed-advanced">
+            <div className="embed-platform-selector embed-platform-options">
+              <label className="embed-section-label">Target platform:</label>
                 <select
                   value={targetPlatform}
                   onChange={(e) => onTargetPlatformChange(e.target.value)}
@@ -210,17 +177,16 @@ export function EmbedModal({
                     <option key={key} value={key}>{PLATFORM_LABELS[key] ?? key}</option>
                   ))}
                 </select>
-                <p className="muted" style={{ fontSize: "0.8rem", marginTop: "0.25rem" }}>
-                  Pre-resizes to match platform max width. Default (Instagram/1080px) works on all platforms.
-                </p>
-              </div>
-            )}
+              <p className="muted embed-platform-help">
+                Pre-resizes to the selected channel model. These profiles are estimates and require field verification.
+              </p>
+            </div>
           </div>
         )}
 
         {/* Progress indicator */}
         {embedding && (
-          <div className="stego-progress" style={{ marginTop: "1rem" }}>
+          <div className="stego-progress">
             <p className="muted detect-status">{stegoProgress || "Processing..."}</p>
             <div className="progress-bar"><div className="progress-bar-indeterminate"></div></div>
           </div>

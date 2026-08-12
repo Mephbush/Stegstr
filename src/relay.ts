@@ -4,6 +4,7 @@
  */
 
 import type { NostrEvent } from "./types";
+import { finishEventAsync, verifyEvent } from "./nostr-stub";
 
 /** URL where the app fetches relay list (JSON with "relays" array). */
 export const STEGSTR_CONFIG_URL = "https://www.stegstr.com/config/relay.json";
@@ -53,17 +54,27 @@ export async function getRelayUrls(): Promise<string[]> {
 
 export type RelayEventCallback = (event: NostrEvent) => void;
 
-type RelayHandle = { close: () => void; send: (payload: unknown[]) => void };
+type RelayHandle = {
+  close: () => void;
+  send: (payload: unknown[]) => void;
+  publish: (event: NostrEvent) => Promise<boolean>;
+};
 
 function connectRelay(
   relayUrl: string,
   ourPubkeys: string[],
   onEvent: RelayEventCallback,
   onEose?: () => void,
-  onError?: (err: unknown) => void
+  onError?: (err: unknown) => void,
+  authSecretKey?: Uint8Array
 ): RelayHandle {
   let closed = false;
   let ws: WebSocket | null = null;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let reconnectAttempt = 0;
+  const pendingPayloads: unknown[][] = [];
+  const pendingPublishes = new Map<string, Set<(accepted: boolean) => void>>();
+  const MAX_PENDING_PAYLOADS = 100;
   const subId = "stegstr-feed-" + Math.random().toString(36).slice(2, 10);
   const subDm = "stegstr-dm-" + Math.random().toString(36).slice(2, 10);
   const dynamicSubIds = new Set<string>();
@@ -72,10 +83,35 @@ function connectRelay(
   const authors = ourPubkeys.length > 0 ? ourPubkeys : ["0000000000000000000000000000000000000000000000000000000000000000"];
 
   function send(payload: unknown[]) {
-    if (closed || !ws || ws.readyState !== WebSocket.OPEN) return;
+    if (closed) return;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      if (payload[0] !== "CLOSE" && pendingPayloads.length < MAX_PENDING_PAYLOADS) {
+        pendingPayloads.push(payload);
+      }
+      return;
+    }
     try {
       ws.send(JSON.stringify(payload));
-    } catch (_) {}
+    } catch (_) {
+      if (payload[0] !== "CLOSE" && pendingPayloads.length < MAX_PENDING_PAYLOADS) {
+        pendingPayloads.push(payload);
+      }
+    }
+  }
+
+  function flushPending() {
+    const queued = pendingPayloads.splice(0, pendingPayloads.length);
+    queued.forEach((payload) => send(payload));
+  }
+
+  function scheduleReconnect() {
+    if (closed || reconnectTimer) return;
+    const delay = Math.min(30_000, 1_000 * 2 ** Math.min(reconnectAttempt, 5));
+    reconnectAttempt++;
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      connectSocket();
+    }, delay);
   }
 
   function closeDynamicSub(id: string) {
@@ -87,6 +123,11 @@ function connectRelay(
 
   function close() {
     closed = true;
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+    pendingPublishes.forEach((resolvers) => resolvers.forEach((resolve) => resolve(false)));
+    pendingPublishes.clear();
+    pendingPayloads.length = 0;
     dynamicSubTimeouts.forEach((t) => clearTimeout(t));
     dynamicSubTimeouts.clear();
     if (ws && ws.readyState === WebSocket.OPEN) {
@@ -100,64 +141,115 @@ function connectRelay(
     ws = null;
   }
 
-  try {
-    ws = new WebSocket(relayUrl);
+  function connectSocket() {
+    if (closed) return;
+    try {
+      ws = new WebSocket(relayUrl);
 
-    ws.onopen = () => {
-      if (closed) {
-        close();
-        return;
-      }
-      send([
-        "REQ",
-        subId,
-        { kinds: [0, 1, 3, 5, 6, 10003], authors, limit: 200 },
-        { kinds: [0], limit: 500 },
-        { kinds: [1], limit: 300 },
-        { kinds: [6], limit: 300 },
-        { kinds: [7], "#p": authors, limit: 300 },
-        { kinds: [9735], "#p": authors, limit: 300 },
-      ]);
-      send(["REQ", subDm, { kinds: [4], "#p": authors, limit: 100 }]);
-    };
+      ws.onopen = () => {
+        if (closed) {
+          close();
+          return;
+        }
+        reconnectAttempt = 0;
+        send([
+          "REQ",
+          subId,
+          { kinds: [0, 1, 3, 5, 6, 10003], authors, limit: 200 },
+          { kinds: [0], limit: 500 },
+          { kinds: [1], limit: 300 },
+          { kinds: [6], limit: 300 },
+          { kinds: [7], "#p": authors, limit: 300 },
+          { kinds: [9735], "#p": authors, limit: 300 },
+        ]);
+        send(["REQ", subDm, { kinds: [4], "#p": authors, limit: 100 }]);
+        flushPending();
+      };
 
-    ws.onmessage = (ev) => {
-      if (closed) return;
-      try {
-        const msg = JSON.parse(ev.data as string) as unknown[];
-        if (msg[0] === "EVENT" && msg[2]) {
-          const e = msg[2] as NostrEvent;
-          if (e.id && e.pubkey && typeof e.created_at === "number" && typeof e.kind === "number" && e.content !== undefined) {
-            try {
-              onEvent(e);
-            } catch (err) {
-              console.error("[relay] onEvent error", err);
+      ws.onmessage = (ev) => {
+        if (closed) return;
+        try {
+          const msg = JSON.parse(ev.data as string) as unknown[];
+          if (msg[0] === "AUTH" && typeof msg[1] === "string" && authSecretKey) {
+            void finishEventAsync(
+              {
+                kind: 22242,
+                content: "",
+                tags: [["relay", relayUrl], ["challenge", msg[1]]],
+                created_at: Math.floor(Date.now() / 1000),
+              },
+              authSecretKey,
+            ).then((authEvent) => send(["AUTH", authEvent])).catch((err) => onError?.(err));
+          }
+          if (msg[0] === "EVENT" && msg[2]) {
+            const e = msg[2] as NostrEvent;
+            if (verifyEvent(e)) {
+              try {
+                onEvent(e);
+              } catch (err) {
+                console.error("[relay] onEvent error", err);
+              }
             }
           }
-        }
-        if (msg[0] === "EOSE") {
-          const eoseSubId = msg[1] as string;
-          if (eoseSubId === subId) {
-            try {
-              onEose?.();
-            } catch (err) {
-              console.error("[relay] onEose error", err);
+          if (msg[0] === "OK" && typeof msg[1] === "string") {
+            const resolvers = pendingPublishes.get(msg[1]);
+            if (resolvers) {
+              const accepted = msg[2] === true;
+              resolvers.forEach((resolve) => resolve(accepted));
+              pendingPublishes.delete(msg[1]);
             }
-          } else if (dynamicSubIds.has(eoseSubId)) {
-            closeDynamicSub(eoseSubId);
           }
-        }
-      } catch (_) {}
-    };
+          if (msg[0] === "NOTICE" || msg[0] === "CLOSED") {
+            onError?.(new Error(`${relayUrl}: ${String(msg[1] ?? msg[2] ?? "relay rejected request")}`));
+          }
+          if (msg[0] === "EOSE") {
+            const eoseSubId = msg[1] as string;
+            if (eoseSubId === subId) {
+              try {
+                onEose?.();
+              } catch (err) {
+                console.error("[relay] onEose error", err);
+              }
+            } else if (dynamicSubIds.has(eoseSubId)) {
+              closeDynamicSub(eoseSubId);
+            }
+          }
+        } catch (_) {}
+      };
 
-    ws.onerror = (err) => onError?.(err);
-    ws.onclose = () => { ws = null; };
-  } catch (err) {
-    onError?.(err);
+      ws.onerror = (err) => {
+        onError?.(err);
+        scheduleReconnect();
+      };
+      ws.onclose = () => {
+        ws = null;
+        scheduleReconnect();
+      };
+    } catch (err) {
+      onError?.(err);
+      scheduleReconnect();
+    }
   }
+
+  connectSocket();
 
   return {
     close,
+    publish: (event: NostrEvent) => new Promise<boolean>((resolve) => {
+      let timeout: ReturnType<typeof setTimeout>;
+      const trackedResolve = (accepted: boolean) => {
+        clearTimeout(timeout);
+        const current = pendingPublishes.get(event.id);
+        current?.delete(trackedResolve);
+        if (current && current.size === 0) pendingPublishes.delete(event.id);
+        resolve(accepted);
+      };
+      const resolvers = pendingPublishes.get(event.id) ?? new Set<(accepted: boolean) => void>();
+      resolvers.add(trackedResolve);
+      pendingPublishes.set(event.id, resolvers);
+      timeout = setTimeout(() => trackedResolve(false), 5_000);
+      send(["EVENT", event]);
+    }),
     send: (payload: unknown[]) => {
       if (payload[0] === "REQ" && typeof payload[1] === "string") {
         const dynId = payload[1] as string;
@@ -177,8 +269,8 @@ function connectRelay(
 
 export type ConnectRelaysResult = {
   close: () => void;
-  /** Publish a signed event via existing relay connections (no new WebSockets). */
-  publish: (event: NostrEvent) => void;
+  /** Publish a signed event via existing relay connections and resolve after relay ACKs. */
+  publish: (event: NostrEvent) => Promise<boolean>;
   requestProfiles: (pubkeys: string[]) => void;
   requestReplies: (noteIds: string[]) => void;
   /** Fetch notes, profile, and contacts for a specific author. */
@@ -198,11 +290,11 @@ export function connectRelays(
   onEvent: RelayEventCallback,
   onEose?: () => void,
   onError?: (err: unknown) => void,
-  relays: string[] = DEFAULT_RELAYS
+  relays: string[] = DEFAULT_RELAYS,
+  authSecretKey?: Uint8Array
 ): ConnectRelaysResult {
   const handles: RelayHandle[] = [];
   let eoseCount = 0;
-  const expectedEose = relays.length;
   let lastSearchSubId: string | null = null;
   let lastMoreSubId: string | null = null;
 
@@ -213,18 +305,24 @@ export function connectRelays(
       onEvent,
       () => {
         eoseCount++;
-        if (eoseCount >= expectedEose) onEose?.();
+        if (eoseCount === 1) onEose?.();
       },
-      onError
+      onError,
+      authSecretKey
     );
     handles.push(h);
   }
 
   return {
     close: () => handles.forEach((h) => h.close()),
-    publish: (event: NostrEvent) => {
-      const payload = ["EVENT", event];
-      handles.forEach((h) => h.send(payload));
+    publish: async (event: NostrEvent) => {
+      if (handles.length === 0) return false;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const results = await Promise.all(handles.map((handle) => handle.publish(event)));
+        if (results.some(Boolean)) return true;
+        if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+      }
+      return false;
     },
     requestProfiles: (pubkeys: string[]) => {
       if (pubkeys.length === 0) return;
@@ -278,42 +376,4 @@ export function connectRelays(
       handles.forEach((h) => h.send(["REQ", subId, { kinds: [1], until, limit: 100 }]));
     },
   };
-}
-
-const PUBLISH_OK_TIMEOUT_MS = 3000;
-
-/** Publish a signed event to relays. Keeps socket open until relay sends OK or timeout. */
-export function publishEvent(event: NostrEvent, relays: string[] = DEFAULT_RELAYS): void {
-  const payload = JSON.stringify(["EVENT", event]);
-  const eventId = event.id;
-  for (const url of relays) {
-    try {
-      const ws = new WebSocket(url);
-      const timeout = setTimeout(() => {
-        try {
-          if (ws.readyState === WebSocket.OPEN) ws.close();
-        } catch (_) {}
-      }, PUBLISH_OK_TIMEOUT_MS);
-      ws.onopen = () => {
-        ws.send(payload);
-      };
-      ws.onmessage = (ev) => {
-        try {
-          const msg = JSON.parse(ev.data as string) as unknown[];
-          if (msg[0] === "OK" && msg[1] === eventId) {
-            clearTimeout(timeout);
-            try {
-              ws.close();
-            } catch (_) {}
-          }
-        } catch (_) {}
-      };
-      ws.onerror = () => {
-        clearTimeout(timeout);
-        try {
-          ws.close();
-        } catch (_) {}
-      };
-    } catch (_) {}
-  }
 }

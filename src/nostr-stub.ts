@@ -82,6 +82,65 @@ export function finishEvent(
   return ev as { id: string; pubkey: string; created_at: number; kind: number; tags: string[][]; content: string; sig: string };
 }
 
+export function eventId(event: {
+  pubkey: string;
+  created_at: number;
+  kind: number;
+  tags: string[][];
+  content: string;
+}): string {
+  const serialized = JSON.stringify([0, event.pubkey, event.created_at, event.kind, event.tags, event.content]);
+  return bytesToHex(sha256Sync(new TextEncoder().encode(serialized)));
+}
+
+export function verifyEvent(event: Partial<{
+  id: string;
+  pubkey: string;
+  created_at: number;
+  kind: number;
+  tags: string[][];
+  content: string;
+  sig: string;
+}>): event is {
+  id: string;
+  pubkey: string;
+  created_at: number;
+  kind: number;
+  tags: string[][];
+  content: string;
+  sig: string;
+} {
+  if (
+    typeof event.id !== "string" || !/^[0-9a-f]{64}$/i.test(event.id) ||
+    typeof event.pubkey !== "string" || !/^[0-9a-f]{64}$/i.test(event.pubkey) ||
+    typeof event.created_at !== "number" || !Number.isInteger(event.created_at) ||
+    typeof event.kind !== "number" || !Number.isInteger(event.kind) ||
+    !Array.isArray(event.tags) || !event.tags.every((tag) => Array.isArray(tag) && tag.every((value) => typeof value === "string")) ||
+    typeof event.content !== "string" || typeof event.sig !== "string" || !/^[0-9a-f]{128}$/i.test(event.sig)
+  ) {
+    return false;
+  }
+  const validEvent = event as {
+    id: string;
+    pubkey: string;
+    created_at: number;
+    kind: number;
+    tags: string[][];
+    content: string;
+    sig: string;
+  };
+  if (eventId(validEvent) !== validEvent.id.toLowerCase()) return false;
+  try {
+    return secp.schnorr.verify(
+      hexToBytes(validEvent.sig),
+      hexToBytes(validEvent.id),
+      hexToBytes(validEvent.pubkey),
+    );
+  } catch {
+    return false;
+  }
+}
+
 // NIP-19: decode nsec/npub (bech32) or hex secret
 export const nip19 = {
   decode(nip19Str: string): { type: string; data: Uint8Array } {

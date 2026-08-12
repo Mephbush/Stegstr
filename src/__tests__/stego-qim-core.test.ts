@@ -213,18 +213,16 @@ describe("PLATFORM_WIDTHS", () => {
     expect(PLATFORM_WIDTHS).toHaveProperty("instagram");
     expect(PLATFORM_WIDTHS).toHaveProperty("facebook");
     expect(PLATFORM_WIDTHS).toHaveProperty("twitter");
-    expect(PLATFORM_WIDTHS).toHaveProperty("whatsapp_standard");
+    expect(PLATFORM_WIDTHS).toHaveProperty("whatsapp");
     expect(PLATFORM_WIDTHS).toHaveProperty("whatsapp_hd");
     expect(PLATFORM_WIDTHS).toHaveProperty("telegram_photo");
     expect(PLATFORM_WIDTHS).toHaveProperty("imessage");
     expect(PLATFORM_WIDTHS).toHaveProperty("none");
   });
 
-  it("instagram is smallest at 1080", () => {
-    const widths = Object.entries(PLATFORM_WIDTHS)
-      .filter(([k]) => k !== "none")
-      .map(([, v]) => v);
-    expect(Math.min(...widths)).toBe(1080);
+  it("uses conservative widths for the harshest modeled channels", () => {
+    expect(PLATFORM_WIDTHS.whatsapp).toBe(800);
+    expect(PLATFORM_WIDTHS.twitter).toBe(600);
     expect(PLATFORM_WIDTHS.instagram).toBe(1080);
   });
 

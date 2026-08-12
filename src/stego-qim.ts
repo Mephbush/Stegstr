@@ -46,8 +46,8 @@ const QIM_ERASURE_MARGIN = QIM_DELTA / 6.0;
 export const PLATFORM_WIDTHS: Record<string, number> = {
   instagram: 1080,
   facebook: 2048,
-  twitter: 1600,
-  whatsapp_standard: 1600,
+  twitter: 600,
+  whatsapp: 800,
   whatsapp_hd: 4096,
   telegram_photo: 1920,
   imessage: 1280,
@@ -55,6 +55,10 @@ export const PLATFORM_WIDTHS: Record<string, number> = {
 };
 
 export const DEFAULT_PLATFORM = "instagram";
+
+export const PLATFORM_ASPECT_RANGES: Record<string, { min: number; max: number }> = {
+  instagram: { min: 4 / 5, max: 1.91 },
+};
 
 // ---------------------------------------------------------------------------
 // Options
@@ -713,10 +717,26 @@ export async function decodeQimImageFile(
 export async function resizeCoverForPlatform(
   coverFile: File,
   targetWidth: number,
+  platform?: string,
 ): Promise<File> {
   const bitmap = await createImageBitmap(coverFile);
-  let w = bitmap.width;
-  let h = bitmap.height;
+  const aspectRange = platform ? PLATFORM_ASPECT_RANGES[platform] : undefined;
+  let sourceX = 0;
+  let sourceY = 0;
+  let sourceW = bitmap.width;
+  let sourceH = bitmap.height;
+  if (aspectRange) {
+    const aspect = sourceW / sourceH;
+    if (aspect < aspectRange.min) {
+      sourceH = Math.floor(sourceW / aspectRange.min);
+      sourceY = Math.floor((bitmap.height - sourceH) / 2);
+    } else if (aspect > aspectRange.max) {
+      sourceW = Math.floor(sourceH * aspectRange.max);
+      sourceX = Math.floor((bitmap.width - sourceW) / 2);
+    }
+  }
+  let w = sourceW;
+  let h = sourceH;
 
   if (targetWidth > 0 && w > targetWidth) {
     const scale = targetWidth / w;
@@ -734,7 +754,7 @@ export async function resizeCoverForPlatform(
     const canvas = new OffscreenCanvas(w, h);
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("Could not get OffscreenCanvas 2d context");
-    ctx.drawImage(bitmap, 0, 0, w, h);
+    ctx.drawImage(bitmap, sourceX, sourceY, sourceW, sourceH, 0, 0, w, h);
     blob = await canvas.convertToBlob({ type: "image/jpeg", quality: 0.95 });
   } else {
     const canvas = document.createElement("canvas");
@@ -742,7 +762,7 @@ export async function resizeCoverForPlatform(
     canvas.height = h;
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("Could not get canvas 2d context");
-    ctx.drawImage(bitmap, 0, 0, w, h);
+    ctx.drawImage(bitmap, sourceX, sourceY, sourceW, sourceH, 0, 0, w, h);
     blob = await new Promise<Blob>((resolve, reject) => {
       canvas.toBlob(
         (b) => (b ? resolve(b) : reject(new Error("toBlob failed"))),
@@ -768,7 +788,7 @@ export async function getQimCapacityForFile(
   const targetWidth =
     PLATFORM_WIDTHS[platform ?? DEFAULT_PLATFORM] ??
     PLATFORM_WIDTHS[DEFAULT_PLATFORM];
-  const resized = await resizeCoverForPlatform(coverFile, targetWidth);
+  const resized = await resizeCoverForPlatform(coverFile, targetWidth, platform);
   const bitmap = await createImageBitmap(resized);
   const w = bitmap.width;
   const h = bitmap.height;
