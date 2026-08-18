@@ -5,6 +5,7 @@
 
 import { bech32 } from "bech32";
 import * as secp from "@noble/secp256k1";
+import type { NostrEvent } from "./types";
 // Sync sha256/hmac for secp256k1 signing (follow, post, like, etc.)
 import { sha256 as sha256Sync } from "@noble/hashes/sha2.js";
 import { hmac } from "@noble/hashes/hmac.js";
@@ -14,13 +15,10 @@ secpHashes.sha256 = (msg: Uint8Array) => sha256Sync(msg);
 secpHashes.hmacSha256 = (key: Uint8Array, msg: Uint8Array) => hmac(sha256Sync, key, msg);
 
 export function generateSecretKey(): Uint8Array {
-  const buf = new Uint8Array(32);
-  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
-    crypto.getRandomValues(buf);
-  } else {
-    for (let i = 0; i < 32; i++) buf[i] = Math.floor(Math.random() * 256);
+  if (typeof crypto === "undefined" || !crypto.getRandomValues) {
+    throw new Error("Secure random number generation is unavailable");
   }
-  return buf;
+  return crypto.getRandomValues(new Uint8Array(32));
 }
 
 export function hexToBytes(hex: string): Uint8Array {
@@ -43,9 +41,37 @@ export function getPublicKey(secretKey: Uint8Array): string {
 }
 
 // NIP-01 event id = sha256(serialize([0, pubkey, created_at, kind, tags, content]))
-async function sha256(bytes: Uint8Array): Promise<Uint8Array> {
-  const buf = await crypto.subtle.digest("SHA-256", bytes);
-  return new Uint8Array(buf);
+function serializeEvent(event: Pick<NostrEvent, "pubkey" | "created_at" | "kind" | "tags" | "content">): Uint8Array {
+  return new TextEncoder().encode(
+    JSON.stringify([0, event.pubkey, event.created_at, event.kind, event.tags, event.content]),
+  );
+}
+
+function isEventShape(event: NostrEvent): boolean {
+  return (
+    /^[a-f0-9]{64}$/i.test(event.id) &&
+    /^[a-f0-9]{64}$/i.test(event.pubkey) &&
+    /^[a-f0-9]{128}$/i.test(event.sig) &&
+    Number.isSafeInteger(event.created_at) &&
+    event.created_at >= 0 &&
+    Number.isSafeInteger(event.kind) &&
+    event.kind >= 0 &&
+    typeof event.content === "string" &&
+    event.content.length <= 65536 &&
+    Array.isArray(event.tags) &&
+    event.tags.length <= 500 &&
+    event.tags.every((tag) => Array.isArray(tag) && tag.length <= 32 && tag.every((value) => typeof value === "string" && value.length <= 1024))
+  );
+}
+
+export function verifyEvent(event: NostrEvent): boolean {
+  if (!isEventShape(event)) return false;
+  try {
+    const eventId = bytesToHex(sha256Sync(serializeEvent(event)));
+    return eventId === event.id.toLowerCase() && secp.schnorr.verify(event.sig, eventId, event.pubkey);
+  } catch {
+    return false;
+  }
 }
 
 /** Create and sign a Nostr event (NIP-01). Use for posts, likes, replies. */
@@ -60,27 +86,12 @@ export async function finishEventAsync(
     id: "",
     sig: "",
   };
-  const serialized = JSON.stringify([0, ev.pubkey, ev.created_at, ev.kind, ev.tags, ev.content]);
-  const idBytes = await sha256(new TextEncoder().encode(serialized));
+  const idBytes = sha256Sync(serializeEvent(ev));
   ev.id = bytesToHex(idBytes);
   ev.sig = bytesToHex(secp.schnorr.sign(idBytes, secretKey));
   return ev as { id: string; pubkey: string; created_at: number; kind: number; tags: string[][]; content: string; sig: string };
 }
 
-/** Sync stub for when crypto.subtle isn't needed (local-only). */
-export function finishEvent(
-  template: { kind: number; content: string; tags: string[][]; created_at: number },
-  secretKey: Uint8Array
-): { id: string; pubkey: string; created_at: number; kind: number; tags: string[][]; content: string; sig: string } {
-  const pubkey = getPublicKey(secretKey);
-  const ev = { ...template, pubkey, id: "", sig: "" };
-  const s = JSON.stringify([0, ev.pubkey, ev.created_at, ev.kind, ev.tags, ev.content]);
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
-  ev.id = Math.abs(h).toString(16).padStart(16, "0") + Date.now().toString(16);
-  ev.sig = bytesToHex(secretKey).slice(0, 128).padEnd(128, "0");
-  return ev as { id: string; pubkey: string; created_at: number; kind: number; tags: string[][]; content: string; sig: string };
-}
 
 // NIP-19: decode nsec/npub (bech32) or hex secret
 export const nip19 = {

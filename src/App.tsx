@@ -10,6 +10,7 @@ import {
   encodeQimImageFile,
   resizeCoverForPlatform,
   qimSelfTest,
+  qimResilienceTest,
   getQimCapacityForFile,
   PLATFORM_WIDTHS,
   DEFAULT_PLATFORM,
@@ -49,6 +50,7 @@ const BASE_RELAYS = "stegstr_relays";
 const BASE_ZAP_QUEUE = "stegstr_zap_queue";
 const BASE_DM_READ = "stegstr_dm_read_timestamps";
 const BASE_NOTIF_READ = "stegstr_notification_read_at";
+const MAX_BUNDLE_EVENTS = 500;
 
 /** Default follows for new local identities so the feed shows posts when network is on. */
 const DEFAULT_FOLLOW_NPUBS = [
@@ -180,6 +182,20 @@ function migrateToIdentities(profile: string | null): IdentityEntry[] {
 }
 
 export type { IdentityEntry } from "./types";
+
+function parseStegstrBundle(jsonString: string): NostrStateBundle {
+  const parsed: unknown = JSON.parse(jsonString);
+  if (typeof parsed !== "object" || parsed === null) throw new Error("Invalid Stegstr bundle");
+  const bundle = parsed as Partial<NostrStateBundle>;
+  if (bundle.version !== STEGSTR_BUNDLE_VERSION || !Array.isArray(bundle.events) || bundle.events.length > MAX_BUNDLE_EVENTS) {
+    throw new Error("Invalid Stegstr bundle");
+  }
+  const events = bundle.events as NostrEvent[];
+  if (!events.every((event) => Nostr.verifyEvent(event))) {
+    throw new Error("Bundle contains an invalid Nostr event");
+  }
+  return { version: STEGSTR_BUNDLE_VERSION, events };
+}
 
 function App({ profile }: { profile: string | null }) {
   const toast = useToast();
@@ -1192,16 +1208,8 @@ function App({ profile }: { profile: string | null }) {
           setDecodeError("Invalid payload");
           return;
         }
-        const bundle = JSON.parse(jsonString) as NostrStateBundle;
-        if (!Array.isArray(bundle.events)) {
-          setDecodeError("Invalid payload");
-          return;
-        }
-        const normalized = bundle.events.map((e) => ({
-          ...e,
-          kind: typeof e.kind === "number" ? e.kind : parseInt(String(e.kind), 10) || 1,
-          created_at: typeof e.created_at === "number" ? e.created_at : Math.floor(Date.now() / 1000),
-        }));
+        const bundle = parseStegstrBundle(jsonString);
+        const normalized = bundle.events;
         setEvents((prev) => {
           const byId = new Map(prev.map((e) => [e.id, e]));
           normalized.forEach((e) => byId.set(e.id, e));
@@ -1334,17 +1342,8 @@ function App({ profile }: { profile: string | null }) {
         logger.logAction("detect_error", "Invalid payload", { path });
         return;
       }
-      const bundle = JSON.parse(jsonString) as NostrStateBundle;
-      if (!Array.isArray(bundle.events)) {
-        setDecodeError("Invalid payload");
-        logger.logAction("detect_error", "Invalid payload (events not array)", { path });
-        return;
-      }
-      const normalized = bundle.events.map((e) => ({
-        ...e,
-        kind: typeof e.kind === "number" ? e.kind : parseInt(String(e.kind), 10) || 1,
-        created_at: typeof e.created_at === "number" ? e.created_at : Math.floor(Date.now() / 1000),
-      }));
+      const bundle = parseStegstrBundle(jsonString);
+      const normalized = bundle.events;
       setEvents((prev) => {
         const byId = new Map(prev.map((e) => [e.id, e]));
         normalized.forEach((e) => byId.set(e.id, e));
@@ -1611,12 +1610,16 @@ function App({ profile }: { profile: string | null }) {
           setStegoProgress("Verifying embed integrity (self-test)...");
           addStegoLog("Running round-trip self-test...");
           const selfTestResult = await qimSelfTest(blob, encrypted);
-          if (selfTestResult.ok) {
-            addStegoLog("Self-test PASSED! Payload survives encode/decode round-trip.");
-          } else {
-            addStegoLog(`Self-test FAILED: ${selfTestResult.error}`);
-            addStegoLog("WARNING: Payload may not survive platform transforms. Consider using Dot method instead.");
+          if (!selfTestResult.ok) {
+            throw new Error(`QIM self-test failed: ${selfTestResult.error ?? "payload mismatch"}`);
           }
+          addStegoLog("Self-test passed.");
+          setStegoProgress("Testing JPEG recompression resilience...");
+          const resilienceResult = await qimResilienceTest(blob, encrypted);
+          if (!resilienceResult.ok) {
+            throw new Error(`QIM resilience test failed: ${resilienceResult.error ?? "payload mismatch"}`);
+          }
+          addStegoLog("Recompression resilience test passed.");
 
           // Step 6: Download
           const name = embedCoverFile.name.replace(/\.[^.]+$/, "") || "image";

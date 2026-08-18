@@ -46,8 +46,8 @@ const QIM_ERASURE_MARGIN = QIM_DELTA / 6.0;
 export const PLATFORM_WIDTHS: Record<string, number> = {
   instagram: 1080,
   facebook: 2048,
-  twitter: 1600,
-  whatsapp_standard: 1600,
+  twitter: 600,
+  whatsapp_standard: 800,
   whatsapp_hd: 4096,
   telegram_photo: 1920,
   imessage: 1280,
@@ -695,6 +695,22 @@ export async function decodeQimImageFile(
       binary += String.fromCharCode.apply(null, Array.from(chunk));
     }
     return { ok: true, payload: "base64:" + btoa(binary) };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+export async function qimResilienceTest(
+  jpegBlob: Blob,
+  originalPayload: Uint8Array,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    let bytes = new Uint8Array(await jpegBlob.arrayBuffer());
+    for (const quality of [70, 65]) {
+      const decoded = await decodeJpegToPixels(bytes);
+      bytes = await encodePixelsToJpeg(decoded.data, decoded.width, decoded.height, quality);
+    }
+    return qimSelfTest(new Blob([bytes], { type: "image/jpeg" }), originalPayload);
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
