@@ -1673,14 +1673,15 @@ function App({ profile }: { profile: string | null }) {
         return;
       }
       const coverName = coverPath.replace(/^.*[/\\]/, "").replace(/\.[^.]+$/, "") || "image";
-      const ext = "png";
+      const ext = embedMethod === "qim" ? "jpg" : "png";
+      const formatName = embedMethod === "qim" ? "JPEG" : "PNG";
       let defaultPath = `${coverName}.${ext}`;
       try {
         const desktop = await tauri.invoke<string>("get_desktop_path");
         if (desktop) defaultPath = `${desktop}/${coverName}.${ext}`;
       } catch (_) {}
       const outputPath = await tauri.saveDialog({
-        filters: [{ name: "PNG", extensions: [ext] }],
+        filters: [{ name: formatName, extensions: [ext] }],
         defaultPath,
       });
       if (!outputPath) {
@@ -1689,11 +1690,13 @@ function App({ profile }: { profile: string | null }) {
       }
       const finalOutputPath = outputPath.endsWith(`.${ext}`) ? outputPath : outputPath + `.${ext}`;
       let maxPayloadBytes = 0;
-      try {
-        maxPayloadBytes = await tauri.invoke<number>("get_dot_capacity", { path: coverPath });
-        addStegoLog(`Dot capacity: ${maxPayloadBytes} bytes`);
-      } catch (e) {
-        addStegoLog(`Dot capacity check failed: ${e instanceof Error ? e.message : String(e)}`);
+      if (embedMethod === "dot") {
+        try {
+          maxPayloadBytes = await tauri.invoke<number>("get_dot_capacity", { path: coverPath });
+          addStegoLog(`Dot capacity: ${maxPayloadBytes} bytes`);
+        } catch (e) {
+          addStegoLog(`Dot capacity check failed: ${e instanceof Error ? e.message : String(e)}`);
+        }
       }
       const buildBundle = async (eventList: NostrEvent[]) => {
         const pubkeysInEmbed = new Set(
@@ -1724,7 +1727,13 @@ function App({ profile }: { profile: string | null }) {
       while (true) {
         const bundle = await buildBundle(trimmedEvents);
         jsonString = JSON.stringify(bundle);
-        const encrypted = await stegoCrypto.encryptOpen(jsonString);
+        const encrypted = embedRecipientMode === "recipients" && embedRecipients.length > 0
+          ? await stegoCrypto.encryptForRecipients(
+              jsonString,
+              effectivePrivKey,
+              Array.from(new Set([Nostr.getPublicKey(Nostr.hexToBytes(effectivePrivKey)), ...embedRecipients])),
+            )
+          : await stegoCrypto.encryptOpen(jsonString);
         if (!maxPayloadBytes || encrypted.length <= maxPayloadBytes) {
           payloadBytes = encrypted;
           break;
@@ -1740,8 +1749,8 @@ function App({ profile }: { profile: string | null }) {
         addStegoLog(`Trimmed events: kept ${trimmedEvents.length}/${events.length} to fit capacity`);
       }
       const payloadToEmbed = "base64:" + uint8ArrayToBase64(payloadBytes);
-      setStegoProgress("Embedding with Dot (offset, robust)...");
-      const cmd = "encode_stego_dot";
+      setStegoProgress(embedMethod === "qim" ? "Embedding with QIM..." : "Embedding with Dot...");
+      const cmd = embedMethod === "qim" ? "encode_stego_qim" : "encode_stego_dot";
       const result = await tauri.invoke<{ ok: boolean; path?: string; error?: string }>(cmd, {
         coverPath,
         outputPath: finalOutputPath,
@@ -1749,11 +1758,13 @@ function App({ profile }: { profile: string | null }) {
       });
       setEmbedModalOpen(false);
       if (result.ok && result.path) {
-        try {
-          const isPng = await tauri.invoke<boolean>("check_png_signature", { path: result.path });
-          addStegoLog(`PNG signature check: ${isPng ? "OK" : "FAIL"}`);
-        } catch (e) {
-          addStegoLog(`PNG signature check error: ${e instanceof Error ? e.message : String(e)}`);
+        if (embedMethod === "dot") {
+          try {
+            const isPng = await tauri.invoke<boolean>("check_png_signature", { path: result.path });
+            addStegoLog(`PNG signature check: ${isPng ? "OK" : "FAIL"}`);
+          } catch (e) {
+            addStegoLog(`PNG signature check error: ${e instanceof Error ? e.message : String(e)}`);
+          }
         }
         addStegoLog(`Saved to: ${result.path}`);
         setStatus(`Saved to ${result.path}. Finder opened.`);

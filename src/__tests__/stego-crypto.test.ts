@@ -66,3 +66,15 @@ describe("stego-crypto", () => {
     expect(decrypted).toBe(json);
   });
 });
+
+describe("Nostr event validation", () => {
+  it("accepts a valid signed event and rejects tampering", async () => {
+    const { finishEventAsync, generateSecretKey, verifyEvent } = await import("../nostr-stub");
+    const event = await finishEventAsync(
+      { kind: 1, content: "Signed Stegstr note", tags: [], created_at: 1735689600 },
+      generateSecretKey(),
+    );
+    expect(verifyEvent(event)).toBe(true);
+    expect(verifyEvent({ ...event, content: "Modified note" })).toBe(false);
+  });
+});

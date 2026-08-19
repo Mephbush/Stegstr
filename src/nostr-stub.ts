@@ -68,7 +68,7 @@ export function verifyEvent(event: NostrEvent): boolean {
   if (!isEventShape(event)) return false;
   try {
     const eventId = bytesToHex(sha256Sync(serializeEvent(event)));
-    return eventId === event.id.toLowerCase() && secp.schnorr.verify(event.sig, eventId, event.pubkey);
+    return eventId === event.id.toLowerCase() && secp.schnorr.verify(hexToBytes(event.sig), hexToBytes(eventId), hexToBytes(event.pubkey));
   } catch {
     return false;
   }

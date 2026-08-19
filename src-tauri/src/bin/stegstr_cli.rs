@@ -21,6 +21,7 @@ Usage:
   stegstr-cli detect <image.png>                 Decode + decrypt, print bundle JSON (same as decode --decrypt)
   stegstr-cli embed <cover.png> -o <out.png> --payload <string|@file> [--encrypt] [--payload-base64]
   stegstr-cli post "content" [--privkey-hex HEX] [--output bundle.json]  Create kind 1 note, output bundle JSON
+  stegstr-cli capabilities                                    Print machine-readable capability JSON
 
 Decode:
   Writes payload to stdout. With --decrypt: decrypts Stegstr app-layer and prints bundle JSON.
@@ -49,6 +50,14 @@ fn main() {
         std::process::exit(1);
     }
     let sub = &args[1];
+    if sub == "--help" || sub == "-h" || sub == "help" {
+        print!("{}", usage());
+        return;
+    }
+    if sub == "capabilities" {
+        println!("{{\"version\":\"0.1.0\",\"input\":[\"png\"],\"commands\":[\"decode\",\"detect\",\"embed\",\"post\"],\"transport\":\"lossless-png\",\"network\":\"bundle-only\"}}");
+        return;
+    }
     if sub == "decode" {
         if let Err(e) = run_decode(&args[2..]) {
             eprintln!("decode error: {}", e);
