@@ -4,6 +4,7 @@
  */
 
 import type { NostrEvent } from "./types";
+import { verifyEvent } from "./nostr-stub";
 
 /** URL where the app fetches relay list (JSON with "relays" array). */
 export const STEGSTR_CONFIG_URL = "https://www.stegstr.com/config/relay.json";
@@ -64,6 +65,9 @@ function connectRelay(
 ): RelayHandle {
   let closed = false;
   let ws: WebSocket | null = null;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let reconnectAttempts = 0;
+  const pendingPayloads: unknown[][] = [];
   const subId = "stegstr-feed-" + Math.random().toString(36).slice(2, 10);
   const subDm = "stegstr-dm-" + Math.random().toString(36).slice(2, 10);
   const dynamicSubIds = new Set<string>();
@@ -72,10 +76,30 @@ function connectRelay(
   const authors = ourPubkeys.length > 0 ? ourPubkeys : ["0000000000000000000000000000000000000000000000000000000000000000"];
 
   function send(payload: unknown[]) {
-    if (closed || !ws || ws.readyState !== WebSocket.OPEN) return;
+    if (closed) return;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      if (payload[0] !== "CLOSE") {
+        pendingPayloads.push(payload);
+        if (pendingPayloads.length > 200) pendingPayloads.shift();
+      }
+      return;
+    }
     try {
       ws.send(JSON.stringify(payload));
-    } catch (_) {}
+    } catch (_) {
+      pendingPayloads.push(payload);
+      if (pendingPayloads.length > 200) pendingPayloads.shift();
+    }
+  }
+
+  function scheduleReconnect() {
+    if (closed || reconnectTimer) return;
+    const delay = Math.min(30000, 1000 * 2 ** reconnectAttempts);
+    reconnectAttempts = Math.min(reconnectAttempts + 1, 5);
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      openConnection();
+    }, delay);
   }
 
   function closeDynamicSub(id: string) {
@@ -87,6 +111,9 @@ function connectRelay(
 
   function close() {
     closed = true;
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+    pendingPayloads.length = 0;
     dynamicSubTimeouts.forEach((t) => clearTimeout(t));
     dynamicSubTimeouts.clear();
     if (ws && ws.readyState === WebSocket.OPEN) {
@@ -100,8 +127,9 @@ function connectRelay(
     ws = null;
   }
 
-  try {
-    ws = new WebSocket(relayUrl);
+  function openConnection() {
+    try {
+      ws = new WebSocket(relayUrl);
 
     ws.onopen = () => {
       if (closed) {
@@ -119,6 +147,11 @@ function connectRelay(
         { kinds: [9735], "#p": authors, limit: 300 },
       ]);
       send(["REQ", subDm, { kinds: [4], "#p": authors, limit: 100 }]);
+      reconnectAttempts = 0;
+      while (pendingPayloads.length > 0) {
+        const payload = pendingPayloads.shift();
+        if (payload) send(payload);
+      }
     };
 
     ws.onmessage = (ev) => {
@@ -127,7 +160,7 @@ function connectRelay(
         const msg = JSON.parse(ev.data as string) as unknown[];
         if (msg[0] === "EVENT" && msg[2]) {
           const e = msg[2] as NostrEvent;
-          if (e.id && e.pubkey && typeof e.created_at === "number" && typeof e.kind === "number" && e.content !== undefined) {
+          if (verifyEvent(e)) {
             try {
               onEvent(e);
             } catch (err) {
@@ -151,10 +184,17 @@ function connectRelay(
     };
 
     ws.onerror = (err) => onError?.(err);
-    ws.onclose = () => { ws = null; };
-  } catch (err) {
-    onError?.(err);
+    ws.onclose = () => {
+      ws = null;
+      scheduleReconnect();
+    };
+    } catch (err) {
+      onError?.(err);
+      scheduleReconnect();
+    }
   }
+
+  openConnection();
 
   return {
     close,

@@ -1,7 +1,7 @@
 ---
 name: stegstr
-summary: Embed and decode hidden messages in PNG images. Steganographic Nostr client for hiding data in images—works offline, no registration.
-description: Decode and embed Stegstr payloads in PNG images. Use when the user needs to extract hidden Nostr data from a Stegstr image, encode a payload into a cover PNG, or work with steganographic social networking (Nostr-in-images). Supports CLI (stegstr-cli decode, detect, embed, post) for scripts and AI agents.
+summary: Decode and embed Stegstr payloads with a machine-operable CLI. PNG codec operations work offline without registration.
+description: Decode and embed Stegstr PNG payloads, create signed Nostr bundles, and automate local workflows. The CLI supports legacy lossless PNG codecs; robust JPEG QIM embedding is available in the app and must be verified against the target channel.
 license: MIT
 tags: steganography, nostr, images, crypto, integration, file-management, automation, cli
 install:
@@ -93,7 +93,7 @@ stegstr-cli detect stego.png
 
 ## Image format
 
-PNG only (lossless). JPEG or other lossy formats will corrupt the hidden data.
+The headless CLI currently uses the legacy lossless PNG codec. JPEG or other lossy transforms will corrupt that CLI output. For social platforms that recompress or resize images, use the app's QIM/JPEG workflow and test the downloaded platform-processed file before relying on it.
 
 ## Payload format
 

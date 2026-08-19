@@ -10,6 +10,7 @@ import {
   encodeQimImageFile,
   resizeCoverForPlatform,
   qimSelfTest,
+  qimResilienceTest,
   getQimCapacityForFile,
   PLATFORM_WIDTHS,
   DEFAULT_PLATFORM,
@@ -49,6 +50,7 @@ const BASE_RELAYS = "stegstr_relays";
 const BASE_ZAP_QUEUE = "stegstr_zap_queue";
 const BASE_DM_READ = "stegstr_dm_read_timestamps";
 const BASE_NOTIF_READ = "stegstr_notification_read_at";
+const MAX_BUNDLE_EVENTS = 500;
 
 /** Default follows for new local identities so the feed shows posts when network is on. */
 const DEFAULT_FOLLOW_NPUBS = [
@@ -180,6 +182,20 @@ function migrateToIdentities(profile: string | null): IdentityEntry[] {
 }
 
 export type { IdentityEntry } from "./types";
+
+function parseStegstrBundle(jsonString: string): NostrStateBundle {
+  const parsed: unknown = JSON.parse(jsonString);
+  if (typeof parsed !== "object" || parsed === null) throw new Error("Invalid Stegstr bundle");
+  const bundle = parsed as Partial<NostrStateBundle>;
+  if (bundle.version !== STEGSTR_BUNDLE_VERSION || !Array.isArray(bundle.events) || bundle.events.length > MAX_BUNDLE_EVENTS) {
+    throw new Error("Invalid Stegstr bundle");
+  }
+  const events = bundle.events as NostrEvent[];
+  if (!events.every((event) => Nostr.verifyEvent(event))) {
+    throw new Error("Bundle contains an invalid Nostr event");
+  }
+  return { version: STEGSTR_BUNDLE_VERSION, events };
+}
 
 function App({ profile }: { profile: string | null }) {
   const toast = useToast();
@@ -1192,16 +1208,8 @@ function App({ profile }: { profile: string | null }) {
           setDecodeError("Invalid payload");
           return;
         }
-        const bundle = JSON.parse(jsonString) as NostrStateBundle;
-        if (!Array.isArray(bundle.events)) {
-          setDecodeError("Invalid payload");
-          return;
-        }
-        const normalized = bundle.events.map((e) => ({
-          ...e,
-          kind: typeof e.kind === "number" ? e.kind : parseInt(String(e.kind), 10) || 1,
-          created_at: typeof e.created_at === "number" ? e.created_at : Math.floor(Date.now() / 1000),
-        }));
+        const bundle = parseStegstrBundle(jsonString);
+        const normalized = bundle.events;
         setEvents((prev) => {
           const byId = new Map(prev.map((e) => [e.id, e]));
           normalized.forEach((e) => byId.set(e.id, e));
@@ -1334,17 +1342,8 @@ function App({ profile }: { profile: string | null }) {
         logger.logAction("detect_error", "Invalid payload", { path });
         return;
       }
-      const bundle = JSON.parse(jsonString) as NostrStateBundle;
-      if (!Array.isArray(bundle.events)) {
-        setDecodeError("Invalid payload");
-        logger.logAction("detect_error", "Invalid payload (events not array)", { path });
-        return;
-      }
-      const normalized = bundle.events.map((e) => ({
-        ...e,
-        kind: typeof e.kind === "number" ? e.kind : parseInt(String(e.kind), 10) || 1,
-        created_at: typeof e.created_at === "number" ? e.created_at : Math.floor(Date.now() / 1000),
-      }));
+      const bundle = parseStegstrBundle(jsonString);
+      const normalized = bundle.events;
       setEvents((prev) => {
         const byId = new Map(prev.map((e) => [e.id, e]));
         normalized.forEach((e) => byId.set(e.id, e));
@@ -1611,12 +1610,16 @@ function App({ profile }: { profile: string | null }) {
           setStegoProgress("Verifying embed integrity (self-test)...");
           addStegoLog("Running round-trip self-test...");
           const selfTestResult = await qimSelfTest(blob, encrypted);
-          if (selfTestResult.ok) {
-            addStegoLog("Self-test PASSED! Payload survives encode/decode round-trip.");
-          } else {
-            addStegoLog(`Self-test FAILED: ${selfTestResult.error}`);
-            addStegoLog("WARNING: Payload may not survive platform transforms. Consider using Dot method instead.");
+          if (!selfTestResult.ok) {
+            throw new Error(`QIM self-test failed: ${selfTestResult.error ?? "payload mismatch"}`);
           }
+          addStegoLog("Self-test passed.");
+          setStegoProgress("Testing JPEG recompression resilience...");
+          const resilienceResult = await qimResilienceTest(blob, encrypted);
+          if (!resilienceResult.ok) {
+            throw new Error(`QIM resilience test failed: ${resilienceResult.error ?? "payload mismatch"}`);
+          }
+          addStegoLog("Recompression resilience test passed.");
 
           // Step 6: Download
           const name = embedCoverFile.name.replace(/\.[^.]+$/, "") || "image";
@@ -1670,14 +1673,15 @@ function App({ profile }: { profile: string | null }) {
         return;
       }
       const coverName = coverPath.replace(/^.*[/\\]/, "").replace(/\.[^.]+$/, "") || "image";
-      const ext = "png";
+      const ext = embedMethod === "qim" ? "jpg" : "png";
+      const formatName = embedMethod === "qim" ? "JPEG" : "PNG";
       let defaultPath = `${coverName}.${ext}`;
       try {
         const desktop = await tauri.invoke<string>("get_desktop_path");
         if (desktop) defaultPath = `${desktop}/${coverName}.${ext}`;
       } catch (_) {}
       const outputPath = await tauri.saveDialog({
-        filters: [{ name: "PNG", extensions: [ext] }],
+        filters: [{ name: formatName, extensions: [ext] }],
         defaultPath,
       });
       if (!outputPath) {
@@ -1686,11 +1690,13 @@ function App({ profile }: { profile: string | null }) {
       }
       const finalOutputPath = outputPath.endsWith(`.${ext}`) ? outputPath : outputPath + `.${ext}`;
       let maxPayloadBytes = 0;
-      try {
-        maxPayloadBytes = await tauri.invoke<number>("get_dot_capacity", { path: coverPath });
-        addStegoLog(`Dot capacity: ${maxPayloadBytes} bytes`);
-      } catch (e) {
-        addStegoLog(`Dot capacity check failed: ${e instanceof Error ? e.message : String(e)}`);
+      if (embedMethod === "dot") {
+        try {
+          maxPayloadBytes = await tauri.invoke<number>("get_dot_capacity", { path: coverPath });
+          addStegoLog(`Dot capacity: ${maxPayloadBytes} bytes`);
+        } catch (e) {
+          addStegoLog(`Dot capacity check failed: ${e instanceof Error ? e.message : String(e)}`);
+        }
       }
       const buildBundle = async (eventList: NostrEvent[]) => {
         const pubkeysInEmbed = new Set(
@@ -1721,7 +1727,13 @@ function App({ profile }: { profile: string | null }) {
       while (true) {
         const bundle = await buildBundle(trimmedEvents);
         jsonString = JSON.stringify(bundle);
-        const encrypted = await stegoCrypto.encryptOpen(jsonString);
+        const encrypted = embedRecipientMode === "recipients" && embedRecipients.length > 0
+          ? await stegoCrypto.encryptForRecipients(
+              jsonString,
+              effectivePrivKey,
+              Array.from(new Set([Nostr.getPublicKey(Nostr.hexToBytes(effectivePrivKey)), ...embedRecipients])),
+            )
+          : await stegoCrypto.encryptOpen(jsonString);
         if (!maxPayloadBytes || encrypted.length <= maxPayloadBytes) {
           payloadBytes = encrypted;
           break;
@@ -1737,8 +1749,8 @@ function App({ profile }: { profile: string | null }) {
         addStegoLog(`Trimmed events: kept ${trimmedEvents.length}/${events.length} to fit capacity`);
       }
       const payloadToEmbed = "base64:" + uint8ArrayToBase64(payloadBytes);
-      setStegoProgress("Embedding with Dot (offset, robust)...");
-      const cmd = "encode_stego_dot";
+      setStegoProgress(embedMethod === "qim" ? "Embedding with QIM..." : "Embedding with Dot...");
+      const cmd = embedMethod === "qim" ? "encode_stego_qim" : "encode_stego_dot";
       const result = await tauri.invoke<{ ok: boolean; path?: string; error?: string }>(cmd, {
         coverPath,
         outputPath: finalOutputPath,
@@ -1746,11 +1758,13 @@ function App({ profile }: { profile: string | null }) {
       });
       setEmbedModalOpen(false);
       if (result.ok && result.path) {
-        try {
-          const isPng = await tauri.invoke<boolean>("check_png_signature", { path: result.path });
-          addStegoLog(`PNG signature check: ${isPng ? "OK" : "FAIL"}`);
-        } catch (e) {
-          addStegoLog(`PNG signature check error: ${e instanceof Error ? e.message : String(e)}`);
+        if (embedMethod === "dot") {
+          try {
+            const isPng = await tauri.invoke<boolean>("check_png_signature", { path: result.path });
+            addStegoLog(`PNG signature check: ${isPng ? "OK" : "FAIL"}`);
+          } catch (e) {
+            addStegoLog(`PNG signature check error: ${e instanceof Error ? e.message : String(e)}`);
+          }
         }
         addStegoLog(`Saved to: ${result.path}`);
         setStatus(`Saved to ${result.path}. Finder opened.`);
