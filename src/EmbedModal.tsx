@@ -10,8 +10,8 @@ export type StegoMethod = "qim" | "dot";
 const PLATFORM_LABELS: Record<string, string> = {
   instagram: "Instagram (1080px)",
   facebook: "Facebook (2048px)",
-  twitter: "Twitter/X (1600px)",
-  whatsapp_standard: "WhatsApp Standard (1600px)",
+  twitter: "Twitter/X (600px)",
+  whatsapp_standard: "WhatsApp Standard (800px)",
   whatsapp_hd: "WhatsApp HD (4096px)",
   telegram_photo: "Telegram (1920px)",
   imessage: "iMessage (1280px)",
@@ -131,6 +131,24 @@ export function EmbedModal({
           <p className="muted" style={{ fontSize: "0.85rem" }}>{capacityInfo}</p>
         )}
 
+        {/* Target platform selector (QIM only) */}
+        {stegoMethod === "qim" && (
+          <div className="embed-platform-selector" style={{ margin: "0.75rem 0" }}>
+            <label className="embed-section-label">Target platform:</label>
+            <select
+              value={targetPlatform}
+              onChange={(e) => onTargetPlatformChange(e.target.value)}
+            >
+              {Object.keys(PLATFORM_WIDTHS).map((key) => (
+                <option key={key} value={key}>{PLATFORM_LABELS[key] ?? key}</option>
+              ))}
+            </select>
+            <p className="muted" style={{ fontSize: "0.8rem", marginTop: "0.25rem" }}>
+              Pre-resizes to match platform max width. The image is tested against simulated platform processing before download.
+            </p>
+          </div>
+        )}
+
         {/* Recipient mode */}
         <div className="embed-recipient-mode" style={{ margin: "0.75rem 0" }}>
           <label style={{ marginRight: "1rem" }}>
@@ -193,28 +211,13 @@ export function EmbedModal({
                 </label>
                 <label style={{ cursor: "pointer" }}>
                   <input type="radio" name="stego-method" checked={stegoMethod === "dot"} onChange={() => onStegoMethodChange("dot")} />
-                  {" "}Dot (PNG, legacy)
+                  {" "}Dot (PNG, legacy, visible)
                 </label>
               </div>
+              <p className="muted" style={{ fontSize: "0.8rem", marginTop: "0.25rem" }}>
+                QIM embeds in the DCT domain of JPEG images and is invisible + robust to recompression. Dot creates visible pixel patterns and is for lossless channels only.
+              </p>
             </div>
-
-            {/* Platform selector (QIM only) */}
-            {stegoMethod === "qim" && (
-              <div className="embed-platform-selector" style={{ marginTop: "0.5rem" }}>
-                <label className="embed-section-label">Target platform:</label>
-                <select
-                  value={targetPlatform}
-                  onChange={(e) => onTargetPlatformChange(e.target.value)}
-                >
-                  {Object.keys(PLATFORM_WIDTHS).map((key) => (
-                    <option key={key} value={key}>{PLATFORM_LABELS[key] ?? key}</option>
-                  ))}
-                </select>
-                <p className="muted" style={{ fontSize: "0.8rem", marginTop: "0.25rem" }}>
-                  Pre-resizes to match platform max width. Default (Instagram/1080px) works on all platforms.
-                </p>
-              </div>
-            )}
           </div>
         )}
 

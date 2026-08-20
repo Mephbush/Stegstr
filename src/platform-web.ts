@@ -36,13 +36,9 @@ export function pickImageFile(): Promise<File | null> {
 /** Decode stego payload from file. Same result shape as Tauri decode_stego_image. */
 export async function decodeStegoFile(file: File): Promise<{ ok: boolean; payload?: string; error?: string }> {
   try {
-    console.log("[platform-web] decodeStegoFile: starting for", file.name, "size:", file.size, "type:", file.type);
-    const result = await decodeDotImageFile(file);
-    console.log("[platform-web] decodeStegoFile: result ok=", result.ok, "payloadLen=", result.payload?.length, "error=", result.error);
-    return result;
+    return await decodeDotImageFile(file);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.error("[platform-web] decodeStegoFile: exception:", e);
     return { ok: false, error: `Decode error: ${msg}` };
   }
 }
@@ -61,37 +57,18 @@ function payloadStringToBytes(payload: string): Uint8Array {
 
 /** Encode image with payload; returns PNG blob. */
 export async function encodeStegoToBlob(coverFile: File, payload: string): Promise<Blob> {
-  try {
-    const payloadBytes = payloadStringToBytes(payload);
-    console.log("[platform-web] encodeStegoToBlob: coverFile=", coverFile.name, "size=", coverFile.size);
-    console.log("[platform-web] encodeStegoToBlob: payload string len:", payload.length, "bytes len:", payloadBytes.length);
-    console.log("[platform-web] encodeStegoToBlob: first 16 bytes:", Array.from(payloadBytes.slice(0, 16)));
-    console.log("[platform-web] encodeStegoToBlob: first 8 as string:", String.fromCharCode(...payloadBytes.slice(0, 8)));
-    const blob = await encodeDotImageFile(coverFile, payloadBytes);
-    console.log("[platform-web] encodeStegoToBlob: success, blob size=", blob.size);
-    return blob;
-  } catch (e) {
-    console.error("[platform-web] encodeStegoToBlob: exception:", e);
-    throw e;
-  }
+  const payloadBytes = payloadStringToBytes(payload);
+  return encodeDotImageFile(coverFile, payloadBytes);
 }
 
 /** Trigger download of a blob with the given filename. */
 export function downloadBlob(blob: Blob, filename: string): void {
-  try {
-    console.log("[platform-web] downloadBlob: blob size=", blob.size, "filename=", filename);
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename || "stegstr-embed.png";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    // Delay revoke to allow download to start
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    console.log("[platform-web] downloadBlob: download triggered");
-  } catch (e) {
-    console.error("[platform-web] downloadBlob: error:", e);
-    throw e;
-  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename || "stegstr-embed.png";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

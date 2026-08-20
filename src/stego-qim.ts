@@ -628,7 +628,6 @@ export async function detectQim(
     }
     return extractedPayload;
   } catch (e) {
-    console.error("[stego-qim] detectQim error:", e);
     return null;
   }
 }
@@ -700,17 +699,89 @@ export async function decodeQimImageFile(
   }
 }
 
+/** Platform simulation profiles: max width, JPEG quality, number of recompression passes. */
+const PLATFORM_SIMULATION_PROFILES: Array<{ name: string; maxWidth: number; quality: number; passes: number }> = [
+  { name: "WhatsApp", maxWidth: 800, quality: 65, passes: 2 },
+  { name: "Telegram", maxWidth: 1280, quality: 72, passes: 2 },
+  { name: "Instagram", maxWidth: 1080, quality: 82, passes: 1 },
+  { name: "Facebook", maxWidth: 2048, quality: 77, passes: 1 },
+  { name: "Twitter/X", maxWidth: 1200, quality: 82, passes: 1 },
+];
+
+/**
+ * Simulate real-world platform processing: resize to platform max width (preserving aspect ratio),
+ * then recompress as JPEG at platform quality for the specified number of passes.
+ * This mirrors what WhatsApp, Telegram, Instagram, etc. actually do to images.
+ */
+async function simulatePlatformChannel(
+  jpegBytes: Uint8Array,
+  maxWidth: number,
+  quality: number,
+  passes: number,
+): Promise<Uint8Array> {
+  let bytes = jpegBytes;
+  for (let pass = 0; pass < passes; pass++) {
+    const decoded = await decodeJpegToPixels(bytes);
+    let w = decoded.width;
+    let h = decoded.height;
+
+    // Resize if wider than max (simulates platform downscaling)
+    if (maxWidth > 0 && w > maxWidth) {
+      const scale = maxWidth / w;
+      w = maxWidth;
+      h = Math.round(h * scale);
+    }
+
+    // Re-encode at platform quality (browser JPEG encoder uses 4:2:0 by default)
+    bytes = await encodePixelsToJpeg(decoded.data, w, h, quality);
+  }
+  return bytes;
+}
+
+/**
+ * Run QIM resilience test against simulated real-world platform processing.
+ * Tests the embedded payload survives resize + recompression as done by
+ * WhatsApp, Telegram, Instagram, Facebook, and Twitter/X.
+ * Returns { ok: true } if payload survives ALL platform simulations,
+ * or { ok: false, error: string } with details of which platform(s) failed.
+ */
 export async function qimResilienceTest(
   jpegBlob: Blob,
   originalPayload: Uint8Array,
 ): Promise<{ ok: boolean; error?: string }> {
+  const failures: string[] = [];
   try {
-    let bytes = new Uint8Array(await jpegBlob.arrayBuffer());
-    for (const quality of [70, 65]) {
-      const decoded = await decodeJpegToPixels(bytes);
-      bytes = await encodePixelsToJpeg(decoded.data, decoded.width, decoded.height, quality);
+    const originalBytes = new Uint8Array(await jpegBlob.arrayBuffer());
+
+    for (const profile of PLATFORM_SIMULATION_PROFILES) {
+      try {
+        const attacked = await simulatePlatformChannel(
+          originalBytes,
+          profile.maxWidth,
+          profile.quality,
+          profile.passes,
+        );
+        const result = await qimSelfTest(
+          new Blob([attacked], { type: "image/jpeg" }),
+          originalPayload,
+        );
+        if (!result.ok) {
+          failures.push(`${profile.name}: ${result.error ?? "payload mismatch"}`);
+        }
+      } catch (e) {
+        failures.push(
+          `${profile.name}: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
     }
-    return qimSelfTest(new Blob([bytes], { type: "image/jpeg" }), originalPayload);
+
+    if (failures.length > 0) {
+      return {
+        ok: false,
+        error: `Resilience test failed on: ${failures.join("; ")}`,
+      };
+    }
+    return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }

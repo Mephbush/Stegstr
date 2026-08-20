@@ -1084,7 +1084,6 @@ function App({ profile }: { profile: string | null }) {
   const addStegoLog = useCallback((msg: string) => {
     const ts = new Date().toLocaleTimeString();
     setStegoLogs(prev => [...prev.slice(-19), `[${ts}] ${msg}`]);
-    console.log("[StegoLog]", msg);
   }, []);
 
   const handleLoadFromImage = useCallback(async (providedPathOrFile?: string | File | null) => {
@@ -1137,9 +1136,7 @@ function App({ profile }: { profile: string | null }) {
       if (!result.ok) {
         setStegoProgress("Extracting hidden data (Dot decode)...");
         addStegoLog("Running Dot steganography decode...");
-        console.log("[App] Starting decodeStegoFile for:", file.name, "size:", file.size);
         result = await decodeStegoFile(file);
-        console.log("[App] decodeStegoFile result:", result.ok, "error:", result.error, "payloadLen:", result.payload?.length);
       }
       if (!result.ok || !result.payload) {
         const err = result.error || "Decode failed";
@@ -1150,17 +1147,13 @@ function App({ profile }: { profile: string | null }) {
       }
       addStegoLog(`Decode OK! Payload: ${result.payload.length} chars`);
         const raw = result.payload;
-        console.log("[App] Detected payload type:", raw.startsWith("base64:") ? "base64" : "json", "len:", raw.length);
         let jsonString: string;
         if (raw.startsWith("base64:")) {
           addStegoLog("Decoding base64 payload...");
           const bytes = Uint8Array.from(atob(raw.slice(7)), (c) => c.charCodeAt(0));
           addStegoLog(`Decoded: ${bytes.length} bytes, prefix: ${String.fromCharCode(...bytes.slice(0, 8))}`);
-          console.log("[App] Decoded bytes len:", bytes.length, "first 16:", Array.from(bytes.slice(0, 16)));
-          console.log("[App] First 8 as string:", String.fromCharCode(...bytes.slice(0, 8)));
           if (!stegoCrypto.isEncryptedPayload(bytes)) {
             addStegoLog("FAIL: Missing STEGSTR1 magic header!");
-            console.log("[App] FAIL: bytes don't start with STEGSTR1. Expected:", Array.from(new TextEncoder().encode("STEGSTR1")));
             setDecodeError("Not a Stegstr encrypted image");
             logger.logAction("detect_error", "Not a Stegstr encrypted image", { name: file.name });
             return;
@@ -1235,7 +1228,6 @@ function App({ profile }: { profile: string | null }) {
         logger.logAction("detect_completed", `Loaded ${bundle.events.length} events`, { name: file.name, eventCount: bundle.events.length });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        console.error("[App] Detect error:", e);
         setDecodeError(msg);
         logger.logAction("detect_error", msg, { name: file.name });
       } finally {
@@ -1277,21 +1269,15 @@ function App({ profile }: { profile: string | null }) {
       let result: { ok: boolean; payload?: string; error?: string };
       setStegoProgress("Extracting hidden data (Dot decode)...");
       addStegoLog("Running Dot steganography decode...");
-      console.log("[Detect] Trying Dot decode first:", path);
       result = await tauri.invoke<{ ok: boolean; payload?: string; error?: string }>("decode_stego_dot", { path });
-      console.log("[Detect] Dot result: ok=", result.ok, "error=", result.error ?? "(none)");
       if (!result.ok) {
         addStegoLog(`Dot decode failed: ${result.error ?? "unknown error"}`);
         if (isJpeg) {
           addStegoLog("Falling back to QIM decode (JPEG)...");
-          console.log("[Detect] JPEG: falling back to QIM decode:", path);
           result = await tauri.invoke<{ ok: boolean; payload?: string; error?: string }>("decode_stego_qim", { path });
-          console.log("[Detect] QIM result: ok=", result.ok, "error=", result.error ?? "(none)", "payloadLen=", result.payload?.length ?? 0);
         } else {
           addStegoLog("Falling back to DWT decode (PNG/other)...");
-          console.log("[Detect] PNG/other: falling back to DWT decode:", path);
           result = await tauri.invoke<{ ok: boolean; payload?: string; error?: string }>("decode_stego_image", { path });
-          console.log("[Detect] DWT result: ok=", result.ok, "error=", result.error ?? "(none)");
         }
       }
       if (!result.ok || !result.payload) {
