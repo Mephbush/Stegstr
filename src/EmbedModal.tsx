@@ -10,7 +10,7 @@ export type StegoMethod = "qim" | "dot";
 const PLATFORM_LABELS: Record<string, string> = {
   instagram: "Instagram (1080px)",
   facebook: "Facebook (2048px)",
-  twitter: "Twitter/X (600px)",
+  twitter: "Twitter/X (1200px)",
   whatsapp_standard: "WhatsApp Standard (800px)",
   whatsapp_hd: "WhatsApp HD (4096px)",
   telegram_photo: "Telegram (1920px)",
