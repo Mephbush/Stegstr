@@ -30,7 +30,10 @@ cd src-tauri && cargo build --release --bin stegstr-cli
 stegstr-cli post "Hello from CLI" --output bundle.json
 stegstr-cli embed cover.png -o out.png --payload @bundle.json --encrypt
 stegstr-cli detect out.png
+stegstr-cli capabilities
 ```
+
+The `capabilities` command prints machine-readable JSON describing all supported inputs and commands, for integration with automation pipelines.
 
 ## How It Works
 
@@ -51,6 +54,20 @@ stegstr-cli detect out.png
 6. **Resilience test**: simulates real platform processing (resize + recompress at platform quality, multiple passes) for WhatsApp, Telegram, Instagram, Facebook, and Twitter/X — the download is blocked if any platform simulation fails
 7. Downloads the JPEG image
 
+### Platform Simulation Profiles
+
+Each platform is modeled with its own max width, JPEG quality, and recompression pass count. These values reflect how each platform actually processes uploaded images:
+
+| Platform     | Max Width | JPEG Quality | Passes |
+|--------------|-----------|-------------|--------|
+| WhatsApp     | 1600px    | 55          | 2      |
+| Telegram     | 1280px    | 72          | 1      |
+| Instagram    | 1080px    | 72          | 1      |
+| Facebook     | 2048px    | 70          | 1      |
+| Twitter/X    | 1200px    | 85          | 1      |
+
+WhatsApp is the most aggressive channel: double-pass recompression at quality 55. The QIM embedding (δ=14, 5× repetition, RS-128) is tuned to survive this worst case. If the payload survives WhatsApp, it survives all other platforms.
+
 ### Detection (Decode)
 
 1. User clicks **Detect image** → selects a JPEG or PNG
@@ -69,13 +86,23 @@ stegstr-cli detect out.png
 - **Open mode**: AES-GCM with app-derived key — any Stegstr user can detect and read
 - **Recipients only**: inner payload encrypted with random symmetric key; key encrypted per-recipient via NIP-04 (ECDH + AES-CBC). Only listed pubkeys can decrypt.
 
+The outer layer is always AES-GCM with a `STEGSTR1` magic header and version byte, so the decoder can detect Stegstr payloads and distinguish them from random noise.
+
 ### Networking (Nostr)
 
 - Toggle Network ON to connect to Nostr relays (Primal, Damus, nos.lol, nostr.band)
-- Publishes/posts/likes/reposts/DMs for Nostr-category identities
+- Remote relay config fetched from `stegstr.com/config/relay.json` with local fallback
+- Publishes posts/likes/reposts/DMs for Nostr-category identities
 - Local-category identities never publish to relays (steganographic only)
 - Relay connections auto-reconnect with exponential backoff
 - All received events are signature-verified (NIP-01)
+- Subscribes to kinds 0, 1, 3, 4, 5, 6, 7, 9735, 10003
+
+### Multi-Identity
+
+- **Local identities**: steganographic only — data lives in images, never touches relays
+- **Nostr identities**: relay-synced — publish and receive from the Nostr network
+- Both types are convertible. A user can start local (anonymous) and later attach a Nostr key to go online.
 
 ## Key Features
 
@@ -90,7 +117,7 @@ stegstr-cli detect out.png
 | **NIP-04 recipient encryption** | Per-recipient encryption for private bundles |
 | **Nostr relay networking** | Publish/subscribe with auto-reconnect, signature verification |
 | **Multi-identity support** | Local (steganographic only) and Nostr (relay-synced) identities |
-| **CLI for automation** | Headless embed/detect/post for scripts and AI agents |
+| **CLI for automation** | Headless embed/detect/post/capabilities for scripts and AI agents |
 | **Cross-platform** | Web, macOS, Windows, Linux desktop via Tauri |
 
 ## Testing
@@ -154,7 +181,7 @@ To verify the submission:
 
 1. **Run the web app**: `npm ci && npm run dev`
 2. **Create a post** in the feed
-3. **Click Embed image** → choose a JPEG cover → select "WhatsApp Standard (800px)" as target platform
+3. **Click Embed image** → choose a JPEG cover → select "WhatsApp Standard (1600px)" as target platform
 4. The app will embed, self-test, and run resilience tests against all 5 platforms before downloading
 5. **Send the downloaded JPEG through real WhatsApp/Telegram/Instagram**
 6. **Download the processed image** from the platform

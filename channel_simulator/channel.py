@@ -29,10 +29,10 @@ class ChannelProfile:
 
 
 PROFILES: dict[ProfileName, ChannelProfile] = {
-    "whatsapp": ChannelProfile(max_width=800, jpeg_quality=65),
-    "instagram": ChannelProfile(max_width=1080, jpeg_quality=82),
-    "facebook": ChannelProfile(max_width=2048, jpeg_quality=77),
-    "twitter": ChannelProfile(max_width=600, jpeg_quality=82),
+    "whatsapp": ChannelProfile(max_width=1600, jpeg_quality=55),
+    "instagram": ChannelProfile(max_width=1080, jpeg_quality=72),
+    "facebook": ChannelProfile(max_width=2048, jpeg_quality=70),
+    "twitter": ChannelProfile(max_width=1200, jpeg_quality=85),
 }
 
 

@@ -224,9 +224,10 @@ describe("PLATFORM_WIDTHS", () => {
     const widths = Object.entries(PLATFORM_WIDTHS)
       .filter(([k]) => k !== "none")
       .map(([, v]) => v);
-    expect(Math.min(...widths)).toBe(800);
+    expect(Math.min(...widths)).toBe(1080);
     expect(PLATFORM_WIDTHS.twitter).toBe(1200);
-    expect(PLATFORM_WIDTHS.whatsapp_standard).toBe(800);
+    expect(PLATFORM_WIDTHS.whatsapp_standard).toBe(1600);
+    expect(PLATFORM_WIDTHS.telegram_photo).toBe(1280);
     expect(PLATFORM_WIDTHS.instagram).toBe(1080);
   });
 

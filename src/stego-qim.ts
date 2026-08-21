@@ -47,9 +47,9 @@ export const PLATFORM_WIDTHS: Record<string, number> = {
   instagram: 1080,
   facebook: 2048,
   twitter: 1200,
-  whatsapp_standard: 800,
+  whatsapp_standard: 1600,
   whatsapp_hd: 4096,
-  telegram_photo: 1920,
+  telegram_photo: 1280,
   imessage: 1280,
   none: 0,
 };
@@ -701,11 +701,11 @@ export async function decodeQimImageFile(
 
 /** Platform simulation profiles: max width, JPEG quality, number of recompression passes. */
 const PLATFORM_SIMULATION_PROFILES: Array<{ name: string; maxWidth: number; quality: number; passes: number }> = [
-  { name: "WhatsApp", maxWidth: 800, quality: 65, passes: 2 },
-  { name: "Telegram", maxWidth: 1280, quality: 72, passes: 2 },
-  { name: "Instagram", maxWidth: 1080, quality: 82, passes: 1 },
-  { name: "Facebook", maxWidth: 2048, quality: 77, passes: 1 },
-  { name: "Twitter/X", maxWidth: 1200, quality: 82, passes: 1 },
+  { name: "WhatsApp", maxWidth: 1600, quality: 55, passes: 2 },
+  { name: "Telegram", maxWidth: 1280, quality: 72, passes: 1 },
+  { name: "Instagram", maxWidth: 1080, quality: 72, passes: 1 },
+  { name: "Facebook", maxWidth: 2048, quality: 70, passes: 1 },
+  { name: "Twitter/X", maxWidth: 1200, quality: 85, passes: 1 },
 ];
 
 /**

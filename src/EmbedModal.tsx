@@ -11,9 +11,9 @@ const PLATFORM_LABELS: Record<string, string> = {
   instagram: "Instagram (1080px)",
   facebook: "Facebook (2048px)",
   twitter: "Twitter/X (1200px)",
-  whatsapp_standard: "WhatsApp Standard (800px)",
+  whatsapp_standard: "WhatsApp Standard (1600px)",
   whatsapp_hd: "WhatsApp HD (4096px)",
-  telegram_photo: "Telegram (1920px)",
+  telegram_photo: "Telegram (1280px)",
   imessage: "iMessage (1280px)",
   none: "No resize (original size)",
 };
