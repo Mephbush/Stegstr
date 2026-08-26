@@ -650,9 +650,24 @@ export function getQimCapacityBytes(
   const totalBitsAvailable = Math.floor(totalCoeffs / repeat);
   const totalBytesAvailable = Math.floor(totalBitsAvailable / 8);
 
-  // Subtract overhead: 2-byte codeword length + RS parity + MAGIC + LENGTH_BYTES
-  const overhead = 2 + rsNsym + MAGIC_LEN + LENGTH_BYTES;
-  return Math.max(0, totalBytesAvailable - overhead);
+  // RS chunking: each chunk holds max 255-rsNsym data bytes but produces 255 codeword bytes.
+  // The embed pipeline is: raw (MAGIC+length+payload) -> RS encode (chunked) -> codeword
+  // -> 2-byte length prefix -> bits -> repeat.
+  // So: totalBytesAvailable = 2 + ceil(rawLen / chunkData) * 255
+  // We need to solve for max payloadLen given totalBytesAvailable.
+  const chunkData = 255 - rsNsym;
+  const fixedOverhead = MAGIC_LEN + LENGTH_BYTES; // MAGIC + 4-byte length prefix on raw
+
+  // totalBytesAvailable = 2 + N_chunks * 255, where N_chunks = ceil((fixedOverhead + payloadLen) / chunkData)
+  // => N_chunks = floor((totalBytesAvailable - 2) / 255)
+  const maxChunks = Math.floor((totalBytesAvailable - 2) / 255);
+  if (maxChunks <= 0) return 0;
+
+  // maxRawLen = maxChunks * chunkData
+  const maxRawLen = maxChunks * chunkData;
+  // payloadLen = maxRawLen - fixedOverhead (but payload is compressed, so this is the compressed size)
+  const maxCompressedPayload = maxRawLen - fixedOverhead;
+  return Math.max(0, maxCompressedPayload);
 }
 
 /**

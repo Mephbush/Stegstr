@@ -193,14 +193,14 @@ describe("getQimCapacityBytes", () => {
   it("capacity scales with image area", () => {
     const c1 = getQimCapacityBytes(1080, 720);
     const c2 = getQimCapacityBytes(2160, 1440); // 4x area
-    // Should be roughly 4x capacity (minus fixed overhead)
+    // Should be roughly 4x capacity (with RS chunking overhead, at least 3x)
     expect(c2).toBeGreaterThan(c1 * 3);
   });
 
   it("typical 1080px image has enough capacity for small payloads", () => {
     const cap = getQimCapacityBytes(1080, 720);
-    // Should hold at least 5KB for typical Nostr bundles
-    expect(cap).toBeGreaterThan(5000);
+    // Should hold at least 3KB for typical Nostr bundles (after RS chunking overhead)
+    expect(cap).toBeGreaterThan(3000);
   });
 });
 
