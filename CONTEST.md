@@ -117,7 +117,7 @@ The outer layer is always AES-GCM with a `STEGSTR1` magic header and version byt
 | **NIP-04 recipient encryption** | Per-recipient encryption for private bundles |
 | **Nostr relay networking** | Publish/subscribe with auto-reconnect, signature verification |
 | **Multi-identity support** | Local (steganographic only) and Nostr (relay-synced) identities |
-| **CLI for automation** | Headless embed/detect/post/capabilities for scripts and AI agents |
+| **CLI for automation** | Headless embed/detect/post/capabilities for scripts and automation |
 | **Cross-platform** | Web, macOS, Windows, Linux desktop via Tauri |
 
 ## Testing

@@ -1,4 +1,4 @@
-//! Stegstr CLI: headless decode, embed, detect, and post for scripts and AI agents.
+//! Stegstr CLI: headless decode, embed, detect, and post for scripts and automation.
 //! Build with: cargo build --release --bin stegstr-cli
 
 use base64::Engine;

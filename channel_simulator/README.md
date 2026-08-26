@@ -1,6 +1,6 @@
 # Channel Simulator and Robustness Tests
 
-Simulates social-platform image processing (WhatsApp, Instagram, Facebook, Twitter) so steganography can be tested in an **enclosed loop** without posting to real platforms.
+Simulates social-platform image processing (WhatsApp, Telegram, Instagram, Facebook, Twitter) so steganography can be tested in an **enclosed loop** without posting to real platforms.
 
 ## Setup
 
@@ -21,14 +21,14 @@ cd .. && cargo build --release --bin stegstr-cli
 ```python
 from channel import simulate, PROFILES
 
-# Simulate WhatsApp: resize to 800px, JPEG Q 65, 4:2:0
+# Simulate WhatsApp: resize to 1600px, JPEG Q 55, 2 passes, 4:2:0
 jpeg_bytes = simulate("stego.png", "whatsapp")
 
 # With output file
 simulate("stego.png", "instagram", output_path="after_instagram.jpg")
 ```
 
-Profiles: `whatsapp`, `instagram`, `facebook`, `twitter` (see `channel.PROFILES`).
+Profiles: `whatsapp`, `telegram`, `instagram`, `facebook`, `twitter` (see `channel.PROFILES`).
 
 ## Tests
 
@@ -50,7 +50,7 @@ from PIL import Image
 cover = Path('fixture_cover.png')
 if not cover.exists():
     Image.new('RGB', (512,512), (120,140,160)).save(cover)
-for name in ['whatsapp', 'instagram', 'twitter']:
+for name in ['whatsapp', 'telegram', 'instagram', 'twitter']:
     jpeg = simulate(cover, name)
     assert jpeg[:2] == b'\xff\xd8'
 print('Channel simulator tests OK')
@@ -76,7 +76,7 @@ if cli:
 
 ## Baseline result
 
-Current **DWT (Haar 2D) + LSB** embedding does **not** survive any simulated channel (WhatsApp, Instagram, Facebook, Twitter). After resize + JPEG re-encode, decode fails or returns wrong data. This validates the need for a DCT-based robust path (see plan).
+Current **DWT (Haar 2D) + LSB** embedding does **not** survive any simulated channel (WhatsApp, Telegram, Instagram, Facebook, Twitter). After resize + JPEG re-encode, decode fails or returns wrong data. This validates the need for a DCT-based robust path (see plan).
 
 ## DCT-robust prototype
 
@@ -98,10 +98,10 @@ stego_jpeg_bytes = encode_dct(cover_jpg, payload)
 # After "channel" (e.g. Instagram-like):
 after = simulate("stego.jpg", "instagram")  # or pass bytes via temp file
 decoded = decode_dct(after)
-# Decoded should match payload for Instagram/Twitter-like profiles; WhatsApp/Facebook may fail.
+# Decoded should match payload for Telegram/Instagram/Twitter-like profiles; WhatsApp/Facebook may fail.
 ```
 
-Payload format is compatible (STEGSTR magic + length + payload) with Reed–Solomon error correction. In tests, DCT survives **Instagram** and **Twitter**-like channels; **WhatsApp** and **Facebook**-like (harsher resize/Q) may still corrupt the payload.
+Payload format is compatible (STEGSTR magic + length + payload) with Reed–Solomon error correction. In tests, DCT survives **Telegram**, **Instagram** and **Twitter**-like channels; **WhatsApp** and **Facebook**-like (harsher resize/Q) may still corrupt the payload.
 
 ## Optional: STEGSTR_CLI
 

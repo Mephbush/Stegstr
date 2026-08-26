@@ -31,4 +31,4 @@ See [SKILL.md](./SKILL.md) for full documentation and examples.
 - [stegstr.com](https://stegstr.com)
 - [GitHub](https://github.com/brunkstr/Stegstr)
 - [CLI docs](https://www.stegstr.com/wiki/cli.html)
-- [For AI agents](https://www.stegstr.com/wiki/for-agents.html)
+- [CLI docs](https://www.stegstr.com/wiki/cli.html)

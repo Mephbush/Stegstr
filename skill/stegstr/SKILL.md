@@ -16,7 +16,7 @@ permissions:
   - filesystem
 metadata:
   homepage: https://stegstr.com
-  for-agents: https://www.stegstr.com/wiki/for-agents.html
+  cli-docs: https://www.stegstr.com/wiki/cli.html
   repo: https://github.com/brunkstr/Stegstr
 ---
 
@@ -29,7 +29,7 @@ Stegstr hides Nostr messages and arbitrary payloads inside PNG images using steg
 - User wants to **decode** (extract) hidden data from a PNG that contains Stegstr data.
 - User wants to **embed** a payload into a cover PNG (e.g. Nostr bundle, JSON, text).
 - User mentions steganography, Nostr-in-images, Stegstr, hiding data in images, or secret messages in photos.
-- User needs programmatic access for automation, scripts, or AI agents.
+- User needs programmatic access for automation or scripts.
 
 ## CLI (headless)
 
@@ -105,7 +105,5 @@ Decrypted bundle: `{ "version": 1, "events": [ ... Nostr events ... ] }`. Schema
 
 ## Links
 
-- **agents.txt:** https://www.stegstr.com/agents.txt
-- **For agents:** https://www.stegstr.com/wiki/for-agents.html
 - **CLI docs:** https://www.stegstr.com/wiki/cli.html
 - **Downloads:** https://github.com/brunkstr/Stegstr/releases/latest
